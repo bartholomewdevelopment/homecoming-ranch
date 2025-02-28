@@ -116,26 +116,34 @@ function App() {
 
       {/* Hero Section */}
       <section id="home" className="hero" style={{ backgroundImage: `url(${heroImage})` }}>
-        <div className="hero-overlay"></div>
-        <div className="hero-content">
-          <h1 className="hero-title animate-slide-in">Homecoming Ranch</h1>
-          <h2 className="hero-subtitle animate-fade-in">
-            🌱 Regenerative Ranching for a Healthier Planet & Community 🌱
-          </h2>
-          <p className="animate-fade-in">
-            Grass-fed beef & goat meat, sustainably farmed in Appalachian Ohio.
-          </p>
-          <div className="cta-buttons animate-slide-up">
-            <button className="cta-btn primary-btn" onClick={() => setIsBuyMeatModalOpen(true)}>
-              Buy Meat
-            </button>
-            <button className="cta-btn secondary-btn">Book a Stay</button>
-            <button className="cta-btn outline-btn" onClick={() => setIsEventsModalOpen(true)}>
-              See Events
-            </button>
-          </div>
-        </div>
-      </section>
+  <div className="hero-overlay"></div>
+  <div className="hero-content">
+    <h1 className="hero-title animate-slide-in">Homecoming Ranch</h1>
+    <h2 className="hero-subtitle animate-fade-in">
+      🌱 Regenerative Ranching for a Healthier Planet & Community 🌱
+    </h2>
+    <p className="animate-fade-in">
+      Grass-fed beef & goat meat, sustainably farmed in Appalachian Ohio.
+    </p>
+    <div className="cta-buttons animate-slide-up">
+      <button className="cta-btn primary-btn" onClick={() => setIsBuyMeatModalOpen(true)}>
+        Buy Meat
+      </button>
+      <a 
+        href="https://www.airbnb.com/h/homecomingranchcabin" 
+        className="cta-btn secondary-btn" 
+        target="_blank" 
+        rel="noopener noreferrer"
+      >
+        Book a Stay
+      </a>
+      <button className="cta-btn outline-btn" onClick={() => setIsEventsModalOpen(true)}>
+        See Events
+      </button>
+    </div>
+  </div>
+</section>
+
 
       {/* What is Regenerative Ranching */}
       <section className="regenerative-info animate-section">
@@ -210,7 +218,7 @@ function App() {
             Experience sustainable ranching: milk goats, collect eggs, and watch working dogs!
           </p>
           <div className="stay-buttons">
-            <a href="https://www.airbnb.com/room/51365896" target="_blank" rel="noopener noreferrer" className="cta-btn primary-btn">
+            <a href="https://www.airbnb.com/h/homecomingranchcabin" target="_blank" rel="noopener noreferrer" className="cta-btn primary-btn">
               Book Your Stay on Airbnb
             </a>
             <button className="cta-btn outline-btn" onClick={() => setIsTourModalOpen(true)}>
