@@ -17,6 +17,8 @@ import familyWorkingImage from './assets/milking-goat.jpg';
 import goatsPastureImage from './assets/barn.jpg';
 import cattleForagingImage from './assets/farmhouse.jpg';
 import ohioHillsImage from './assets/goats.jpg';
+import steaks from './assets/steaks.png';
+import eggs from './assets/eggs.png';
 
 function App() {
   const [isNavOpen, setIsNavOpen] = useState(false);
@@ -26,6 +28,7 @@ function App() {
   const [isTourModalOpen, setIsTourModalOpen] = useState(false);
   const [isLivestockModalOpen, setIsLivestockModalOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+  const [isStayBookingModalOpen, setIsStayBookingModalOpen] = useState(false); // New state for stay modal
   const [selectedLivestock, setSelectedLivestock] = useState(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isFullImageView, setIsFullImageView] = useState(false);
@@ -60,6 +63,32 @@ function App() {
           </p>
           <p>
             Our goats are mostly hybrids of meat breeds such as Spanish, Kiko, Savanah, and Boer. Most meat breeds are specifically bred to produce heavily muscled goats, while Spanish varieties are particularly hardy, well-adapted survivors. At Homecoming Ranch, our goal is to breed a commercial goat that is perfectly adapted to forage and thrive on the local terrain so we can offer healthy meat to customers and excellent breeding stock to local farmers.
+          </p>
+        </>
+      ),
+    },
+    lamb: {
+      title: 'Lamb',
+      content: (
+        <>
+          <p>
+            Our pasture-raised lambs produce meat that's tender, flavorful, and packed with essential nutrients. Raised on diverse grasses and forbs, our lambs develop a rich flavor profile while maintaining a lean composition. Lamb is an excellent source of high-quality protein, vitamin B12, zinc, and iron.
+          </p>
+          <p>
+            Our sheep thrive in our rotational grazing system, contributing to soil health while enjoying a natural diet free from grains and artificial supplements. This results in meat that's not only delicious but also aligns with our regenerative mission to restore the land and provide healthy food options.
+          </p>
+        </>
+      ),
+    },
+    poultry: {
+      title: 'Poultry (Seasonal)',
+      content: (
+        <>
+          <p>
+            Our free-range poultry is raised regeneratively with access to fresh pasture, sunlight, and a natural diet supplemented with non-GMO feed. This produces juicy, flavorful meat that's higher in Omega-3 fatty acids and vitamins compared to conventional poultry. Available seasonally, typically in spring and fall.
+          </p>
+          <p>
+            Our chickens and turkeys roam freely in mobile coops that we rotate across the pastures, allowing them to scratch, peck, and fertilize the soil naturally. This practice enhances soil microbiology while ensuring our poultry live healthy, stress-free lives, resulting in superior meat quality.
           </p>
         </>
       ),
@@ -107,7 +136,7 @@ function App() {
           <nav className={`nav ${isNavOpen ? 'open' : ''}`}>
             <a href="#home">Home</a>
             <a href="#buy-meat">Buy Meat</a>
-            <a href="#book-stay">Book a Stay</a>
+            <a href="#book-stay" onClick={(e) => { e.preventDefault(); setIsStayBookingModalOpen(true); }}>Book a Stay</a>
             <a href="#ranch-life">Ranch Life</a>
             <a href="#contact" onClick={(e) => { e.preventDefault(); setIsContactModalOpen(true); }}>Contact</a>
           </nav>
@@ -116,37 +145,34 @@ function App() {
 
       {/* Hero Section */}
       <section id="home" className="hero" style={{ backgroundImage: `url(${heroImage})` }}>
-  <div className="hero-overlay"></div>
-  <div className="hero-content">
-    <h1 className="hero-title animate-slide-in">Homecoming Ranch</h1>
-    <h2 className="hero-subtitle animate-fade-in">
-      🌱 Regenerative Ranching for a Healthier Planet & Community 🌱
-    </h2>
-    <p className="animate-fade-in">
-      Grass-fed beef & goat meat, sustainably farmed in Appalachian Ohio.
-    </p>
-    <div className="cta-buttons animate-slide-up">
-      <button className="cta-btn primary-btn" onClick={() => setIsBuyMeatModalOpen(true)}>
-        Buy Meat
-      </button>
-      <a 
-        href="https://www.airbnb.com/h/homecomingranchcabin" 
-        className="cta-btn secondary-btn" 
-        target="_blank" 
-        rel="noopener noreferrer"
-      >
-        Book a Stay
-      </a>
-      <button className="cta-btn outline-btn" onClick={() => setIsEventsModalOpen(true)}>
-        See Events
-      </button>
-    </div>
-  </div>
-</section>
-
+        <div className="hero-overlay"></div>
+        <div className="hero-content">
+          <h1 className="hero-title animate-slide-in">Homecoming Ranch</h1>
+          <h2 className="hero-subtitle animate-fade-in">
+            🌱 Regenerative Ranching for a Healthier Planet & Community 🌱
+          </h2>
+          <p className="animate-fade-in">
+            Grass-fed beef & goat meat, sustainably farmed in Appalachian Ohio.
+          </p>
+          <div className="cta-buttons animate-slide-up">
+            <button className="cta-btn primary-btn" onClick={() => setIsBuyMeatModalOpen(true)}>
+              Buy Meat
+            </button>
+            <button
+              className="cta-btn secondary-btn"
+              onClick={() => setIsStayBookingModalOpen(true)} // Updated to open modal
+            >
+              Book a Stay
+            </button>
+            <button className="cta-btn outline-btn" onClick={() => setIsEventsModalOpen(true)}>
+              See Events
+            </button>
+          </div>
+        </div>
+      </section>
 
       {/* What is Regenerative Ranching */}
-      <section className="regenerative-info animate-section">
+      <section className="regenerative-info animate-section" style={{ '--logo-url': `url(${logo})` }}>
         <h2>What is Regenerative Ranching?</h2>
         <p className="highlight">
           🌍 Beyond sustainable—restoring the land while raising healthy animals.
@@ -175,25 +201,33 @@ function App() {
 
       {/* Livestock Section */}
       <section id="buy-meat" className="livestock animate-section" style={{ backgroundImage: `url(${cattleImage})` }}>
-        <div className="livestock-overlay"></div>
-        <div className="livestock-content">
-          <h2>Our Regeneratively-Raised Livestock</h2>
-          <div className="livestock-grid">
-            <div className="livestock-item" onClick={() => openLivestockModal('cows')}>
-              <h3>Highland Cows</h3>
-              <p>100% Grass-Fed & Grass-Finished. Superior nutrition with higher Omega-3s.</p>
-            </div>
-            <div className="livestock-item" onClick={() => openLivestockModal('goats')}>
-              <h3>Goats</h3>
-              <p>Pasture-raised on natural forage. Lean, high-protein meat.</p>
-            </div>
+      <div className="livestock-overlay"></div>
+      <div className="livestock-content">
+        <h2>Our Regeneratively-Raised Livestock</h2>
+        <div className="livestock-grid">
+          <div className="livestock-item" onClick={() => openLivestockModal('cows')}>
+            <h3>Highland Cows</h3>
+            <p>100% Grass-Fed & Grass-Finished. Superior nutrition with higher Omega-3s.</p>
           </div>
-          <p className="highlight">🥩 Eating regeneratively supports your health & the planet!</p>
-          <button className="cta-btn primary-btn" onClick={() => setIsBuyMeatModalOpen(true)}>
-            Buy Meat
-          </button>
+          <div className="livestock-item" onClick={() => openLivestockModal('goats')}>
+            <h3>Goats</h3>
+            <p>Pasture-raised on natural forage. Lean, high-protein meat.</p>
+          </div>
+          <div className="livestock-item" onClick={() => openLivestockModal('lamb')}>
+            <h3>Lamb</h3>
+            <p>Pasture-raised, tender, and flavorful. Rich in essential nutrients.</p>
+          </div>
+          <div className="livestock-item" onClick={() => openLivestockModal('poultry')}>
+            <h3>Poultry</h3>
+            <p>Free-range, regeneratively raised. Juicy, high-quality meat.</p>
+          </div>
         </div>
-      </section>
+        <p className="highlight">🥩 Eating regeneratively supports your health & the planet!</p>
+        <button className="cta-btn primary-btn" onClick={() => setIsBuyMeatModalOpen(true)}>
+          Buy Meat
+        </button>
+      </div>
+    </section>
 
       {/* Photo Grid */}
       <section className="photo-grid animate-section">
@@ -218,9 +252,12 @@ function App() {
             Experience sustainable ranching: milk goats, collect eggs, and watch working dogs!
           </p>
           <div className="stay-buttons">
-            <a href="https://www.airbnb.com/h/homecomingranchcabin" target="_blank" rel="noopener noreferrer" className="cta-btn primary-btn">
-              Book Your Stay on Airbnb
-            </a>
+            <button
+              className="cta-btn primary-btn"
+              onClick={() => setIsStayBookingModalOpen(true)} // Updated to open modal
+            >
+              Book Your Stay
+            </button>
             <button className="cta-btn outline-btn" onClick={() => setIsTourModalOpen(true)}>
               Tour the Cabin & Ranch
             </button>
@@ -251,20 +288,60 @@ function App() {
             <img src={ohioHillsImage} alt="Lush hills of southern Ohio" className="story-image" />
           </div>
         </div>
-        <div className="mission-vision">
-          <div className="mission-card">
-            <h4>🌿 Mission</h4>
-            <p>Homecoming Ranch will provide our customers with toxin-free, healthy livestock products raised by high grass-fed and free-range or pasture-raised standards. We will earn the trust of our working partners and vendors by providing a good product, being consistent and fun to work with. We will provide a place for members of our community to share the joy of a family farm. We will create the opportunity to live the life of our choosing on a well-run, profitable farm that allows us to be self-reliant and contribute to the well-being of others.</p>
+        {/* Values Section */}
+        <section className="values-section">
+          <h2>Our Values</h2>
+          <p>
+            We believe that the values we hold dear are a critical part of what sets Homecoming Ranch apart. Our uncompromising commitment to these values is reflected in every aspect of our lives and should be evident in every encounter with others.
+          </p>
+          <div className="values-list">
+            <div className="value-item">
+              <h3>Honesty</h3>
+              <p>
+                Complete and accurate information. Honesty requires humility, courage and respect – <em>Principle of Truth</em>
+              </p>
+            </div>
+            <div className="value-item">
+              <h3>Relationships</h3>
+              <p>
+                People are of divine worth and origin. We strive to be generous and committed to mutual benefit – <em>Principle of Love</em>
+              </p>
+            </div>
+            <div className="value-item">
+              <h3>Work Ethic</h3>
+              <p>
+                Driven to get results through sustained, focused effort. – <em>Principle of Law of the Harvest</em>
+              </p>
+            </div>
+            <div className="value-item">
+              <h3>Choice</h3>
+              <p>
+                We understand the difference between influence and control. We strive to be an influence for good. – <em>Principle of Agency</em>
+              </p>
+            </div>
+            <div className="value-item">
+              <h3>Innovation</h3>
+              <p>
+                Always learning, growing, and adding value. Exercising faith and an abundance mentality. – <em>Principle of Creation</em>
+              </p>
+            </div>
           </div>
+        </section>
+        <div className="mission-vision">
           <div className="mission-card">
             <h4>🌱 Vision</h4>
             <p>The Homecoming Ranch will be a place for family and friends to gather. We will share a wholesome farm experience with children and their families. We will live life on our own terms as we raise healthy animals free of toxins. Our farm will be a working expression of our values. We will live faithfully and strive to magnify all of our callings.</p>
+          </div>
+          <div className="mission-card">
+            <h4>🌿 Mission</h4>
+            <p>Homecoming Ranch will provide our customers with toxin-free, healthy livestock products raised by high grass-fed and free-range or pasture-raised standards. We will earn the trust of our working partners and vendors by providing a good product, being consistent and fun to work with. We will provide a place for members of our community to share the joy of a family farm. We will create the opportunity to live the life of our choosing on a well-run, profitable farm that allows us to be self-reliant and contribute to the well-being of others.</p>
           </div>
         </div>
       </section>
 
       {/* Footer */}
       <footer className="footer">
+        <img src={logo} alt="Homecoming Ranch Logo" className="logo" />
         <p>© 2025 Homecoming Ranch.</p>
         <p>Website Built by <a href="https://bartholomewdevelopment.com" target="_blank" rel="noopener noreferrer">Bartholomew Development LLC</a> | <a href="mailto:inquiries@bartholomewdevelopment.com">inquiries@bartholomewdevelopment.com</a></p>
         <a href="https://instagram.com" target="_blank" rel="noopener noreferrer">
@@ -276,6 +353,7 @@ function App() {
       {isBuyMeatModalOpen && (
         <div className="modal-overlay" onClick={() => closeModal(setIsBuyMeatModalOpen)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <img src={steaks} alt="Steaks" className="modal-image" />
             <h2>Inquire About Our Products</h2>
             <form className="buy-meat-form">
               <input type="text" placeholder="First Name" required />
@@ -311,6 +389,7 @@ function App() {
       {isEventsModalOpen && (
         <div className="modal-overlay" onClick={() => closeModal(setIsEventsModalOpen)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <img src={eggs} alt="Steaks" className="modal-image" />
             <h2>Upcoming Events</h2>
             <ul className="events-list">
               <li>March 15, 2025 - Goat Milking Workshop (9 AM - 12 PM)</li>
@@ -396,18 +475,32 @@ function App() {
         </div>
       )}
 
-      {isLivestockModalOpen && selectedLivestock && (
-        <div className="modal-overlay" onClick={() => closeModal(setIsLivestockModalOpen)}>
-          <div className="modal-content livestock-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{livestockInfo[selectedLivestock].title}</h2>
-            {livestockInfo[selectedLivestock].content}
-            <button className="modal-close" onClick={() => closeModal(setIsLivestockModalOpen)}>×</button>
-            <button className="cta-btn outline-btn modal-close-bottom" onClick={() => closeModal(setIsLivestockModalOpen)}>
+{isLivestockModalOpen && selectedLivestock && (
+      <div className="modal-overlay" onClick={() => closeModal(setIsLivestockModalOpen)}>
+        <div className="modal-content livestock-modal" onClick={(e) => e.stopPropagation()}>
+          <h2>{livestockInfo[selectedLivestock].title}</h2>
+          {livestockInfo[selectedLivestock].content}
+          <button className="modal-close" onClick={() => closeModal(setIsLivestockModalOpen)}>×</button>
+          <div className="modal-buttons">
+            <button 
+              className="cta-btn primary-btn"
+              onClick={() => {
+                setIsBuyMeatModalOpen(true);
+                setIsLivestockModalOpen(false);
+              }}
+            >
+              Buy Meat
+            </button>
+            <button 
+              className="cta-btn outline-btn" 
+              onClick={() => closeModal(setIsLivestockModalOpen)}
+            >
               Close
             </button>
           </div>
         </div>
-      )}
+      </div>
+    )}
 
       {isContactModalOpen && (
         <div className="modal-overlay" onClick={() => closeModal(setIsContactModalOpen)}>
@@ -434,6 +527,49 @@ function App() {
             </form>
             <button className="modal-close" onClick={() => closeModal(setIsContactModalOpen)}>×</button>
             <button className="cta-btn outline-btn modal-close-bottom" onClick={() => closeModal(setIsContactModalOpen)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* New Stay Booking Modal */}
+      {isStayBookingModalOpen && (
+        <div className="modal-overlay" onClick={() => closeModal(setIsStayBookingModalOpen)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h2>Book Your Stay</h2>
+            <p>Select a platform to book your stay at Homecoming Ranch:</p>
+            <div className="booking-links">
+              <a
+                href="https://www.airbnb.com/h/homecomingranchcabin" // Your actual Airbnb link
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cta-btn booking-link"
+              >
+                Book on Airbnb
+              </a>
+              <a
+                href="https://t.vrbo.io/UuLw6otUmRb" // Replace with actual VRBO link
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cta-btn booking-link"
+              >
+                Book on VRBO
+              </a>
+              <a
+                href="https://farmstayus.com/farm/homecoming-ranch/" // Replace with actual FarmStayUS link
+                target="_blank"
+                rel="noopener noreferrer"
+                className="cta-btn booking-link"
+              >
+                Book on FarmStayUS
+              </a>
+            </div>
+            <button className="modal-close" onClick={() => closeModal(setIsStayBookingModalOpen)}>×</button>
+            <button
+              className="cta-btn outline-btn modal-close-bottom"
+              onClick={() => closeModal(setIsStayBookingModalOpen)}
+            >
               Close
             </button>
           </div>
