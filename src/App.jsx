@@ -59,7 +59,7 @@ function App() {
       content: (
         <>
           <p>
-            Goat meat is one of the most widely consumed meats worldwide and arguably the healthiest meat option available. While high in protein and iron, it has fewer calories than other meat, including beef, lamb, and pork, and less fat than any other meat, including chicken! In addition to the health benefits, goat meat, or chevron, is a tender, lean meat with a savory taste. It can be prepared multiple ways, including grilled, roasted, stewed, curried, barbecued, or made into sausage or bratwurst.
+            Goat meat is one of the most widely consumed meats worldwide and arguably the healthiest meat option available. While high in protein and iron, it has fewer calories than other meat, including beef, lamb, and pork, and less fat than any other meat, including chicken! In addition to the health benefits, goat meat, or chevon, is a tender, lean meat with a savory taste. It can be prepared multiple ways, including grilled, roasted, stewed, curried, barbecued, or made into sausage or bratwurst.
           </p>
           <p>
             Our goats are mostly hybrids of meat breeds such as Spanish, Kiko, Savanah, and Boer. Most meat breeds are specifically bred to produce heavily muscled goats, while Spanish varieties are particularly hardy, well-adapted survivors. At Homecoming Ranch, our goal is to breed a commercial goat that is perfectly adapted to forage and thrive on the local terrain so we can offer healthy meat to customers and excellent breeding stock to local farmers.
@@ -363,7 +363,7 @@ function App() {
               <select required>
                 <option value="">Which Product Are You Inquiring About?</option>
                 <option value="highland-beef">Highland Beef</option>
-                <option value="chevron">Chevron (Goat Meat)</option>
+                <option value="chevon">Chevon (Goat Meat)</option>
                 <option value="lamb">Lamb</option>
                 <option value="turkey">Turkey (Seasonal)</option>
               </select>
