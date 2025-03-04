@@ -344,7 +344,7 @@ function App() {
         <img src={logo} alt="Homecoming Ranch Logo" className="logo" />
         <p>© 2025 Homecoming Ranch.</p>
         <p>Website Built by <a href="https://bartholomewdevelopment.com" target="_blank" rel="noopener noreferrer">Bartholomew Development LLC</a> | <a href="mailto:inquiries@bartholomewdevelopment.com">inquiries@bartholomewdevelopment.com</a></p>
-        <a href="https://instagram.com" target="_blank" rel="noopener noreferrer">
+        <a href="https://instagram.com/homecomingranch" target="_blank" rel="noopener noreferrer">
           <span className="instagram-icon">📸 Follow Homecoming Ranch's journey!</span>
         </a>
       </footer>
