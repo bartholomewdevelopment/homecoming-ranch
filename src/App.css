@@ -1046,3 +1046,13 @@ h3 {
 .modal-content::-webkit-scrollbar-track {
   background: #f0f0f0;
 }
+
+.success-message {
+  color: green;
+  margin-bottom: 10px;
+}
+
+.error-message {
+  color: red;
+  margin-bottom: 10px;
+}

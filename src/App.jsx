@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
+import emailjs from '@emailjs/browser';
 import logo from './assets/logo.png';
 import heroImage from './assets/herd.png';
 import rotationalGrazingImage from './assets/tractor.jpg';
@@ -28,10 +29,16 @@ function App() {
   const [isTourModalOpen, setIsTourModalOpen] = useState(false);
   const [isLivestockModalOpen, setIsLivestockModalOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
-  const [isStayBookingModalOpen, setIsStayBookingModalOpen] = useState(false); // New state for stay modal
+  const [isStayBookingModalOpen, setIsStayBookingModalOpen] = useState(false);
   const [selectedLivestock, setSelectedLivestock] = useState(null);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [isFullImageView, setIsFullImageView] = useState(false);
+  const [buyMeatFormStatus, setBuyMeatFormStatus] = useState(null);
+  const [contactFormStatus, setContactFormStatus] = useState(null);
+
+  useEffect(() => {
+    emailjs.init("Ww_3InmrvIGGHR3m8"); // Replace with your EmailJS public key
+  }, []);
 
   const galleryImages = [
     { src: cabinImage, alt: 'Cabin Exterior' },
@@ -99,6 +106,8 @@ function App() {
     modalSetter(false);
     setIsFullImageView(false);
     setSelectedLivestock(null);
+    setBuyMeatFormStatus(null); // Reset form status
+    setContactFormStatus(null); // Reset form status
   };
 
   const openLivestockModal = (type) => {
@@ -120,6 +129,46 @@ function App() {
 
   const closeFullImage = () => {
     setIsFullImageView(false);
+  };
+
+  const handleBuyMeatSubmit = (e) => {
+    e.preventDefault();
+    const form = e.target;
+
+    // Convert checkbox value to "Yes" or "No"
+    const newsletterValue = form.newsletter.checked ? "Yes" : "No";
+    form.newsletter.value = newsletterValue;
+
+    emailjs.sendForm("service_fftcjg1", "buy_meat_template", form)
+      .then((response) => {
+        console.log("Buy Meat Form Success!", response.status, response.text);
+        setBuyMeatFormStatus("success");
+        form.reset();
+      })
+      .catch((error) => {
+        console.error("Buy Meat Form Failed...", error);
+        setBuyMeatFormStatus("error");
+      });
+  };
+
+  const handleContactSubmit = (e) => {
+    e.preventDefault();
+    const form = e.target;
+
+    // Convert checkbox value to "Yes" or "No"
+    const newsletterValue = form.newsletter.checked ? "Yes" : "No";
+    form.newsletter.value = newsletterValue;
+
+    emailjs.sendForm("service_fftcjg1", "contact_us_template", form)
+      .then((response) => {
+        console.log("Contact Form Success!", response.status, response.text);
+        setContactFormStatus("success");
+        form.reset();
+      })
+      .catch((error) => {
+        console.error("Contact Form Failed...", error);
+        setContactFormStatus("error");
+      });
   };
 
   return (
@@ -160,7 +209,7 @@ function App() {
             </button>
             <button
               className="cta-btn secondary-btn"
-              onClick={() => setIsStayBookingModalOpen(true)} // Updated to open modal
+              onClick={() => setIsStayBookingModalOpen(true)}
             >
               Book a Stay
             </button>
@@ -201,33 +250,33 @@ function App() {
 
       {/* Livestock Section */}
       <section id="buy-meat" className="livestock animate-section" style={{ backgroundImage: `url(${cattleImage})` }}>
-      <div className="livestock-overlay"></div>
-      <div className="livestock-content">
-        <h2>Our Regeneratively-Raised Livestock</h2>
-        <div className="livestock-grid">
-          <div className="livestock-item" onClick={() => openLivestockModal('cows')}>
-            <h3>Highland Cows</h3>
-            <p>100% Grass-Fed & Grass-Finished. Superior nutrition with higher Omega-3s.</p>
+        <div className="livestock-overlay"></div>
+        <div className="livestock-content">
+          <h2>Our Regeneratively-Raised Livestock</h2>
+          <div className="livestock-grid">
+            <div className="livestock-item" onClick={() => openLivestockModal('cows')}>
+              <h3>Highland Cows</h3>
+              <p>100% Grass-Fed & Grass-Finished. Superior nutrition with higher Omega-3s.</p>
+            </div>
+            <div className="livestock-item" onClick={() => openLivestockModal('goats')}>
+              <h3>Goats</h3>
+              <p>Pasture-raised on natural forage. Lean, high-protein meat.</p>
+            </div>
+            <div className="livestock-item" onClick={() => openLivestockModal('lamb')}>
+              <h3>Lamb</h3>
+              <p>Pasture-raised, tender, and flavorful. Rich in essential nutrients.</p>
+            </div>
+            <div className="livestock-item" onClick={() => openLivestockModal('poultry')}>
+              <h3>Poultry</h3>
+              <p>Free-range, regeneratively raised. Juicy, high-quality meat.</p>
+            </div>
           </div>
-          <div className="livestock-item" onClick={() => openLivestockModal('goats')}>
-            <h3>Goats</h3>
-            <p>Pasture-raised on natural forage. Lean, high-protein meat.</p>
-          </div>
-          <div className="livestock-item" onClick={() => openLivestockModal('lamb')}>
-            <h3>Lamb</h3>
-            <p>Pasture-raised, tender, and flavorful. Rich in essential nutrients.</p>
-          </div>
-          <div className="livestock-item" onClick={() => openLivestockModal('poultry')}>
-            <h3>Poultry</h3>
-            <p>Free-range, regeneratively raised. Juicy, high-quality meat.</p>
-          </div>
+          <p className="highlight">🥩 Eating regeneratively supports your health & the planet!</p>
+          <button className="cta-btn primary-btn" onClick={() => setIsBuyMeatModalOpen(true)}>
+            Buy Meat
+          </button>
         </div>
-        <p className="highlight">🥩 Eating regeneratively supports your health & the planet!</p>
-        <button className="cta-btn primary-btn" onClick={() => setIsBuyMeatModalOpen(true)}>
-          Buy Meat
-        </button>
-      </div>
-    </section>
+      </section>
 
       {/* Photo Grid */}
       <section className="photo-grid animate-section">
@@ -254,7 +303,7 @@ function App() {
           <div className="stay-buttons">
             <button
               className="cta-btn primary-btn"
-              onClick={() => setIsStayBookingModalOpen(true)} // Updated to open modal
+              onClick={() => setIsStayBookingModalOpen(true)}
             >
               Book Your Stay
             </button>
@@ -355,19 +404,25 @@ function App() {
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <img src={steaks} alt="Steaks" className="modal-image" />
             <h2>Inquire About Our Products</h2>
-            <form className="buy-meat-form">
-              <input type="text" placeholder="First Name" required />
-              <input type="text" placeholder="Last Name" required />
-              <input type="email" placeholder="Email" required />
-              <input type="tel" placeholder="Phone" required />
-              <select required>
+            {buyMeatFormStatus === "success" && (
+              <p className="success-message">Form submitted successfully! We'll get back to you soon.</p>
+            )}
+            {buyMeatFormStatus === "error" && (
+              <p className="error-message">Failed to submit form. Please try again.</p>
+            )}
+            <form className="buy-meat-form" onSubmit={handleBuyMeatSubmit}>
+              <input type="text" name="firstName" placeholder="First Name" required />
+              <input type="text" name="lastName" placeholder="Last Name" required />
+              <input type="email" name="email" placeholder="Email" required />
+              <input type="tel" name="phone" placeholder="Phone" required />
+              <select name="product" required>
                 <option value="">Which Product Are You Inquiring About?</option>
                 <option value="highland-beef">Highland Beef</option>
                 <option value="chevon">Chevon (Goat Meat)</option>
                 <option value="lamb">Lamb</option>
                 <option value="turkey">Turkey (Seasonal)</option>
               </select>
-              <select required>
+              <select name="referralSource" required>
                 <option value="">How Did You Hear About Us?</option>
                 <option value="cabin-guest">Cabin Guest</option>
                 <option value="friends-family">Friends/Family</option>
@@ -376,9 +431,9 @@ function App() {
                 <option value="google-search">Google Search</option>
               </select>
               <label>
-                <input type="checkbox" /> Subscribe to Newsletter
+                <input type="checkbox" name="newsletter" /> Subscribe to Newsletter
               </label>
-              <textarea placeholder="Comments" rows="4"></textarea>
+              <textarea name="comments" placeholder="Comments" rows="4"></textarea>
               <button type="submit" className="cta-btn primary-btn">Submit</button>
             </form>
             <button className="modal-close" onClick={() => closeModal(setIsBuyMeatModalOpen)}>×</button>
@@ -475,43 +530,49 @@ function App() {
         </div>
       )}
 
-{isLivestockModalOpen && selectedLivestock && (
-      <div className="modal-overlay" onClick={() => closeModal(setIsLivestockModalOpen)}>
-        <div className="modal-content livestock-modal" onClick={(e) => e.stopPropagation()}>
-          <h2>{livestockInfo[selectedLivestock].title}</h2>
-          {livestockInfo[selectedLivestock].content}
-          <button className="modal-close" onClick={() => closeModal(setIsLivestockModalOpen)}>×</button>
-          <div className="modal-buttons">
-            <button 
-              className="cta-btn primary-btn"
-              onClick={() => {
-                setIsBuyMeatModalOpen(true);
-                setIsLivestockModalOpen(false);
-              }}
-            >
-              Buy Meat
-            </button>
-            <button 
-              className="cta-btn outline-btn" 
-              onClick={() => closeModal(setIsLivestockModalOpen)}
-            >
-              Close
-            </button>
+      {isLivestockModalOpen && selectedLivestock && (
+        <div className="modal-overlay" onClick={() => closeModal(setIsLivestockModalOpen)}>
+          <div className="modal-content livestock-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{livestockInfo[selectedLivestock].title}</h2>
+            {livestockInfo[selectedLivestock].content}
+            <button className="modal-close" onClick={() => closeModal(setIsLivestockModalOpen)}>×</button>
+            <div className="modal-buttons">
+              <button
+                className="cta-btn primary-btn"
+                onClick={() => {
+                  setIsBuyMeatModalOpen(true);
+                  setIsLivestockModalOpen(false);
+                }}
+              >
+                Buy Meat
+              </button>
+              <button
+                className="cta-btn outline-btn"
+                onClick={() => closeModal(setIsLivestockModalOpen)}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    )}
+      )}
 
       {isContactModalOpen && (
         <div className="modal-overlay" onClick={() => closeModal(setIsContactModalOpen)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h2>Contact Us</h2>
-            <form className="buy-meat-form">
-              <input type="text" placeholder="First Name" required />
-              <input type="text" placeholder="Last Name" required />
-              <input type="email" placeholder="Email" required />
-              <input type="tel" placeholder="Phone" required />
-              <select required>
+            {contactFormStatus === "success" && (
+              <p className="success-message">Form submitted successfully! We'll get back to you soon.</p>
+            )}
+            {contactFormStatus === "error" && (
+              <p className="error-message">Failed to submit form. Please try again.</p>
+            )}
+            <form className="buy-meat-form" onSubmit={handleContactSubmit}>
+              <input type="text" name="firstName" placeholder="First Name" required />
+              <input type="text" name="lastName" placeholder="Last Name" required />
+              <input type="email" name="email" placeholder="Email" required />
+              <input type="tel" name="phone" placeholder="Phone" required />
+              <select name="referralSource" required>
                 <option value="">How Did You Hear About Us?</option>
                 <option value="cabin-guest">Cabin Guest</option>
                 <option value="friends-family">Friends/Family</option>
@@ -520,9 +581,9 @@ function App() {
                 <option value="google-search">Google Search</option>
               </select>
               <label>
-                <input type="checkbox" /> Subscribe to Newsletter
+                <input type="checkbox" name="newsletter" /> Subscribe to Newsletter
               </label>
-              <textarea placeholder="Comments" rows="4"></textarea>
+              <textarea name="comments" placeholder="Comments" rows="4"></textarea>
               <button type="submit" className="cta-btn primary-btn">Submit</button>
             </form>
             <button className="modal-close" onClick={() => closeModal(setIsContactModalOpen)}>×</button>
@@ -533,7 +594,6 @@ function App() {
         </div>
       )}
 
-      {/* New Stay Booking Modal */}
       {isStayBookingModalOpen && (
         <div className="modal-overlay" onClick={() => closeModal(setIsStayBookingModalOpen)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -541,7 +601,7 @@ function App() {
             <p>Select a platform to book your stay at Homecoming Ranch:</p>
             <div className="booking-links">
               <a
-                href="https://www.airbnb.com/h/homecomingranchcabin" // Your actual Airbnb link
+                href="https://www.airbnb.com/h/homecomingranchcabin"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="cta-btn booking-link"
@@ -549,7 +609,7 @@ function App() {
                 Book on Airbnb
               </a>
               <a
-                href="https://t.vrbo.io/UuLw6otUmRb" // Replace with actual VRBO link
+                href="https://t.vrbo.io/UuLw6otUmRb"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="cta-btn booking-link"
@@ -557,7 +617,7 @@ function App() {
                 Book on VRBO
               </a>
               <a
-                href="https://farmstayus.com/farm/homecoming-ranch/" // Replace with actual FarmStayUS link
+                href="https://farmstayus.com/farm/homecoming-ranch/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="cta-btn booking-link"
