@@ -198,7 +198,7 @@ function App() {
         <div className="hero-content">
           <h1 className="hero-title animate-slide-in">Homecoming Ranch</h1>
           <h2 className="hero-subtitle animate-fade-in">
-            🌱 Regenerative Ranching for a Healthier Planet & Community 🌱
+            🌱 Regenerative Ranching for a <br />Healthier Planet & Community 🌱
           </h2>
           <p className="animate-fade-in">
             Grass-fed beef & goat meat, sustainably farmed in Appalachian Ohio.
