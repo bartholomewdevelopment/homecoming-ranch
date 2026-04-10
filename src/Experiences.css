@@ -83,6 +83,137 @@
   background: #fff;
 }
 
+/* Two-column layout: events left, directions right */
+.exp-events-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 3rem;
+  width: 100%;
+  align-items: start;
+  text-align: left;
+}
+
+.exp-events-left {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Directions panel */
+.exp-directions {
+  background: #f4f9f6;
+  border: 1px solid #d1e9dc;
+  border-radius: 14px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.exp-directions-heading {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #266148;
+  margin: 0;
+}
+
+.exp-directions-address {
+  font-size: 0.95rem;
+  color: #374151;
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  line-height: 1.6;
+}
+
+.exp-directions-address svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: #266148;
+}
+
+.exp-map-static {
+  display: block;
+  border-radius: 10px;
+  overflow: hidden;
+  text-decoration: none;
+  border: 1px solid #c3ddd1;
+  transition: box-shadow 0.2s;
+}
+
+.exp-map-static:hover {
+  box-shadow: 0 4px 16px rgba(38, 97, 72, 0.15);
+}
+
+.exp-map-static-inner {
+  background: linear-gradient(135deg, #e8f5ee 0%, #d4ede1 50%, #c8e6d8 100%);
+  height: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-align: center;
+  padding: 1.25rem;
+}
+
+.exp-map-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1a4232;
+  line-height: 1.5;
+}
+
+.exp-map-cta {
+  font-size: 0.8rem;
+  color: #266148;
+  font-weight: 500;
+  margin-top: 0.25rem;
+}
+
+.exp-road-alert {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  background: #fff8e1;
+  border: 1px solid #f6c94e;
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  font-size: 0.875rem;
+  color: #7a5c00;
+}
+
+.exp-road-alert svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #d97706;
+}
+
+.exp-road-alert strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.exp-road-alert p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.exp-directions-link {
+  display: inline-block;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #266148;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.exp-directions-link:hover {
+  color: #1a4232;
+  text-decoration: underline;
+}
+
 .exp-events-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -387,5 +518,13 @@
 
   .exp-section h2 {
     font-size: 2rem;
+  }
+
+  .exp-events-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .exp-directions {
+    order: -1;
   }
 }

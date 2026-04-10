@@ -5,6 +5,7 @@ import emailjs from "@emailjs/browser";
 import logo from "./assets/logo.png";
 import steaks from "./assets/steaks.png";
 import ContactModal from "./ContactModal";
+import Footer from "./Footer";
 
 // US States for dropdown
 const US_STATES = [
@@ -26,6 +27,8 @@ function Store() {
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
   const [inquiryFormStatus, setInquiryFormStatus] = useState(null);
+  const [isWholesaleModalOpen, setIsWholesaleModalOpen] = useState(false);
+  const [wholesaleFormStatus, setWholesaleFormStatus] = useState(null);
 
   useEffect(() => {
     emailjs.init("-FGqvzXuTYnZckP4F");
@@ -199,6 +202,40 @@ function Store() {
     } catch (error) {
       console.error("Inquiry Form Failed...", error);
       setInquiryFormStatus("error");
+    }
+  };
+
+  const handleWholesaleSubmit = async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    try {
+      const recaptchaToken = await getRecaptchaToken('wholesale_inquiry');
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/contactSubmit"
+        : "/api/contact-submit";
+      await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: form.restaurantName.value,
+          lastName: "(Wholesale Inquiry)",
+          email: form.email.value,
+          phone: form.phone.value,
+          referralSource: "wholesale-inquiry",
+          subscribedToNewsletter: false,
+          comments: `Restaurant: ${form.restaurantName.value}\nContact: ${form.contactName.value}\nBeef Interest: ${form.beefType.value}\nEstimated Volume: ${form.volume.value}\nNotes: ${form.notes.value}`,
+          recaptchaToken,
+        }),
+      });
+      emailjs.send("service_fftcjg1", "contact_us_template", {
+        name: `${form.restaurantName.value} (Wholesale)`,
+        message: `Restaurant: ${form.restaurantName.value}\nContact: ${form.contactName.value}\nEmail: ${form.email.value}\nPhone: ${form.phone.value}\nBeef Interest: ${form.beefType.value}\nEstimated Monthly Volume: ${form.volume.value}\nNotes: ${form.notes.value}`,
+      }).catch((err) => console.warn("EmailJS failed:", err));
+      setWholesaleFormStatus("success");
+      form.reset();
+    } catch (error) {
+      console.error("Wholesale inquiry failed:", error);
+      setWholesaleFormStatus("error");
     }
   };
 
@@ -383,34 +420,61 @@ function Store() {
         )}
       </section>
 
-      {/* Footer */}
-      <footer className="footer">
-        <img src={logo} alt="Homecoming Ranch Logo" className="logo" />
-        <p>© 2025 Homecoming Ranch.</p>
-        <p>
-          Website Built by{" "}
-          <a
-            href="https://bartholomewdevelopment.com"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Bartholomew Development LLC
-          </a>{" "}
-          |{" "}
-          <a href="mailto:inquiries@bartholomewdevelopment.com">
-            inquiries@bartholomewdevelopment.com
-          </a>
+      {/* Restaurant & Wholesale Section */}
+      <section id="wholesale" className="store-section wholesale-section" aria-label="Restaurant and wholesale beef inquiry">
+        <span className="section-badge">For Restaurants &amp; Chefs</span>
+        <h2>Wholesale &amp; Restaurant Sourcing</h2>
+        <p className="section-description">
+          We supply grass-fed Highland and Dexter cattle beef directly to restaurants,
+          butcher shops, and food service providers across Ohio — no middlemen,
+          straight from our regenerative ranch in the Hocking Hills region.
         </p>
-        <a
-          href="https://instagram.com/homecoming_ranch"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <span className="instagram-icon">
-            📸 Follow Homecoming Ranch's journey!
-          </span>
-        </a>
-      </footer>
+        <div className="wholesale-grid">
+          <div className="wholesale-features">
+            <ul className="wholesale-list">
+              <li>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                100% grass-fed Highland &amp; Dexter beef
+              </li>
+              <li>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                Regenerative, pasture-raised — Ohio sourced
+              </li>
+              <li>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                Bulk seasonal availability
+              </li>
+              <li>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                Direct farm-to-table relationship
+              </li>
+              <li>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                Trusted by Hocking Hills restaurants
+              </li>
+            </ul>
+            <figure className="wholesale-testimonial">
+              <svg className="testimonial-quote-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.583 17.321C3.553 16.227 3 15 3 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 0 1-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179zm10 0C13.553 16.227 13 15 13 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 0 1-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179z"/></svg>
+              <blockquote>
+                "The quality is unlike anything else we've found — our guests ask about it every time it's on the menu."
+              </blockquote>
+              <figcaption><strong>Lake Hope Lodge</strong> · Hocking Hills, Ohio</figcaption>
+            </figure>
+          </div>
+          <div className="wholesale-cta-box">
+            <h3>Get in Touch</h3>
+            <p>Tell us about your restaurant and what you're looking for. We'll follow up within 1–2 business days.</p>
+            <button
+              className="cta-btn primary-btn"
+              onClick={() => { setIsWholesaleModalOpen(true); setWholesaleFormStatus(null); }}
+            >
+              Send Wholesale Inquiry
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <Footer />
 
       {/* Order Modal */}
       {isOrderModalOpen && selectedProduct && (
@@ -638,6 +702,48 @@ function Store() {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Wholesale Inquiry Modal */}
+      {isWholesaleModalOpen && (
+        <div className="modal-overlay" onClick={() => { setIsWholesaleModalOpen(false); setWholesaleFormStatus(null); }}>
+          <div className="modal-content order-modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Wholesale Inquiry</h2>
+            <p className="modal-subtitle">We'll get back to you within 1–2 business days.</p>
+            {wholesaleFormStatus === "success" ? (
+              <div className="success-message">
+                <p>Thanks! We received your inquiry and will be in touch shortly.</p>
+              </div>
+            ) : (
+              <form className="buy-meat-form" onSubmit={handleWholesaleSubmit}>
+                {wholesaleFormStatus === "error" && (
+                  <p className="error-message">Something went wrong — please try again or email us directly.</p>
+                )}
+                <input type="text" name="restaurantName" placeholder="Restaurant / Business Name" required />
+                <input type="text" name="contactName" placeholder="Your Name" required />
+                <input type="email" name="email" placeholder="Email Address" required />
+                <input type="tel" name="phone" placeholder="Phone Number" required />
+                <select name="beefType" required>
+                  <option value="">Which beef are you interested in?</option>
+                  <option value="Highland Beef">Highland Beef</option>
+                  <option value="Dexter Beef">Dexter Beef</option>
+                  <option value="Both">Both Highland &amp; Dexter</option>
+                  <option value="Not Sure">Not Sure Yet</option>
+                </select>
+                <select name="volume">
+                  <option value="">Estimated monthly volume (optional)</option>
+                  <option value="Under 50 lbs">Under 50 lbs</option>
+                  <option value="50–150 lbs">50–150 lbs</option>
+                  <option value="150–500 lbs">150–500 lbs</option>
+                  <option value="500+ lbs">500+ lbs</option>
+                </select>
+                <textarea name="notes" placeholder="Any other details or questions" rows="3" />
+                <button type="submit" className="cta-btn primary-btn">Send Inquiry</button>
+              </form>
+            )}
+            <button className="modal-close" onClick={() => { setIsWholesaleModalOpen(false); setWholesaleFormStatus(null); }}>×</button>
           </div>
         </div>
       )}

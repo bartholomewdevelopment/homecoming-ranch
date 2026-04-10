@@ -1,6 +1,8 @@
-import { onRequest } from 'firebase-functions/v2/https';
-import { defineSecret } from 'firebase-functions/params';
-import { google } from 'googleapis';
+import { onRequest } from "firebase-functions/v2/https";
+import { defineSecret } from "firebase-functions/params";
+import { initializeApp } from "firebase-admin/app";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 import {
   checkRateLimit,
   sanitizeString,
@@ -10,2234 +12,1967 @@ import {
   getClientIP,
   validateAdminPassword,
   verifyRecaptcha,
-} from './security.js';
+} from "./security.js";
+
+// Initialize Firebase Admin
+initializeApp();
+const db = getFirestore();
+const storage = getStorage();
 
 // Define secrets
-const googleServiceAccountKey = defineSecret('GOOGLE_SERVICE_ACCOUNT_KEY');
-const adminPassword = defineSecret('ADMIN_PASSWORD');
-const recaptchaSecretKey = defineSecret('RECAPTCHA_SECRET_KEY');
+const adminPassword = defineSecret("ADMIN_PASSWORD");
+const recaptchaSecretKey = defineSecret("RECAPTCHA_SECRET_KEY");
 
-// Google Sheets configuration
-const SPREADSHEET_ID = '1Ikt5YbB675yHYj7m0An0AwPeahg9D_GkIPNP2ViCzqQ';
-const SHEET_NAME = 'Leads';
-
-// Allowed origins for CORS (update with your production domain)
+// Allowed origins for CORS
 const ALLOWED_ORIGINS = [
-  'https://homecomingranch.com',
-  'https://www.homecomingranch.com',
-  'https://homecoming-ranch-1c2d9.web.app',
-  'https://homecoming-ranch-1c2d9.firebaseapp.com',
-  'http://localhost:5173', // Vite dev server
-  'http://localhost:5000', // Firebase emulator
+  "https://homecomingranch.com",
+  "https://www.homecomingranch.com",
+  "https://homecoming-ranch-1c2d9.web.app",
+  "https://homecoming-ranch-1c2d9.firebaseapp.com",
+  "http://localhost:5173",
+  "http://localhost:5000",
 ];
-
-/**
- * Initialize Google Sheets API client
- */
-async function getGoogleSheetsClient() {
-  try {
-    // Get credentials from secret and parse
-    const credentialsString = googleServiceAccountKey.value();
-    const credentials = JSON.parse(credentialsString);
-
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-
-    const client = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: client });
-
-    return sheets;
-  } catch (error) {
-    console.error('Error initializing Google Sheets client:', error.message);
-    throw new Error('Failed to initialize Google Sheets API');
-  }
-}
 
 /**
  * Format date and time in America/New_York timezone
  */
 function getFormattedDateTime() {
   const now = new Date();
-
   const dateOptions = {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   };
-
   const timeOptions = {
-    timeZone: 'America/New_York',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
     hour12: true,
   };
-
-  const date = new Intl.DateTimeFormat('en-US', dateOptions).format(now);
-  const time = new Intl.DateTimeFormat('en-US', timeOptions).format(now);
-
+  const date = new Intl.DateTimeFormat("en-US", dateOptions).format(now);
+  const time = new Intl.DateTimeFormat("en-US", timeOptions).format(now);
   return { date, time };
 }
 
 /**
- * Append row to Google Sheet - Recipe Book
+ * Shared CORS + method guard. Returns false and sends response if blocked.
  */
-async function appendToRecipeSheet(firstName, email, subscribedToNewsletter) {
-  try {
-    const sheets = await getGoogleSheetsClient();
-    const { date, time } = getFormattedDateTime();
-
-    // Convert newsletter subscription to TRUE/FALSE
-    const newsletterValue = subscribedToNewsletter ? 'TRUE' : 'FALSE';
-
-    // Prepare the row data matching the column order:
-    // Date, Time, First Name, Email Address, Subscribed to Newsletter
-    const values = [[date, time, firstName, email, newsletterValue]];
-
-    const request = {
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${SHEET_NAME}!A:E`,
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      resource: {
-        values,
-      },
-    };
-
-    const response = await sheets.spreadsheets.values.append(request);
-
-    console.log('Successfully appended row to Recipe Sheet:', {
-      spreadsheetId: SPREADSHEET_ID,
-      updatedRange: response.data.updates.updatedRange,
-      updatedRows: response.data.updates.updatedRows,
-    });
-
-    return response.data;
-  } catch (error) {
-    console.error('Error appending to Recipe Sheet:', error.message);
-    throw error;
+function handleCorsAndMethod(req, res, method) {
+  if (req.method === "OPTIONS") {
+    if (applyCORS(req, res, ALLOWED_ORIGINS)) {
+      res.status(204).send("");
+    } else {
+      res.status(403).send("Origin not allowed");
+    }
+    return false;
   }
+  if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
+    res.status(403).json({ success: false, error: "Origin not allowed" });
+    return false;
+  }
+  if (req.method !== method) {
+    res
+      .status(405)
+      .json({ success: false, error: `Method not allowed. Use ${method}.` });
+    return false;
+  }
+  return true;
 }
 
-/**
- * Append row to Google Sheet - Contact Us
- */
-async function appendToContactSheet(formData) {
-  try {
-    const sheets = await getGoogleSheetsClient();
-    const { date, time } = getFormattedDateTime();
-
-    // Convert newsletter subscription to TRUE/FALSE
-    const newsletterValue = formData.subscribedToNewsletter ? 'TRUE' : 'FALSE';
-
-    // Prepare the row data matching the column order:
-    // Date, Time, First Name, Last Name, Email, Phone, How Did You Hear About Us?, Subscribe to Newsletter?, Comments
-    const values = [[
-      date,
-      time,
-      formData.firstName,
-      formData.lastName,
-      formData.email,
-      formData.phone,
-      formData.referralSource || '',
-      newsletterValue,
-      formData.comments || '',
-    ]];
-
-    const request = {
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Contact Us!A:I',
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      resource: {
-        values,
-      },
-    };
-
-    const response = await sheets.spreadsheets.values.append(request);
-
-    console.log('Successfully appended row to Contact Us Sheet:', {
-      spreadsheetId: SPREADSHEET_ID,
-      updatedRange: response.data.updates.updatedRange,
-      updatedRows: response.data.updates.updatedRows,
-    });
-
-    return response.data;
-  } catch (error) {
-    console.error('Error appending to Contact Us Sheet:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Append row to Google Sheet - Buy Meat
- */
-async function appendToBuyMeatSheet(formData) {
-  try {
-    const sheets = await getGoogleSheetsClient();
-    const { date, time } = getFormattedDateTime();
-
-    // Convert newsletter subscription to TRUE/FALSE
-    const newsletterValue = formData.subscribedToNewsletter ? 'TRUE' : 'FALSE';
-
-    // Prepare the row data matching the column order:
-    // Date, Time, First Name, Last Name, Email, Phone, Which Product Are You Inquiring About?, How Did You Hear About Us?, Subscribe to Newsletter?, Comments
-    const values = [[
-      date,
-      time,
-      formData.firstName,
-      formData.lastName,
-      formData.email,
-      formData.phone,
-      formData.product || '',
-      formData.referralSource || '',
-      newsletterValue,
-      formData.comments || '',
-    ]];
-
-    const request = {
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Buy Meat!A:J',
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      resource: {
-        values,
-      },
-    };
-
-    const response = await sheets.spreadsheets.values.append(request);
-
-    console.log('Successfully appended row to Buy Meat Sheet:', {
-      spreadsheetId: SPREADSHEET_ID,
-      updatedRange: response.data.updates.updatedRange,
-      updatedRows: response.data.updates.updatedRows,
-    });
-
-    return response.data;
-  } catch (error) {
-    console.error('Error appending to Buy Meat Sheet:', error.message);
-    throw error;
-  }
-}
-
-/**
- * Cloud Function: recipeSignup
- * Handles recipe book email capture form submission
- */
+// ---------------------------------------------------------------------------
+// recipeSignup
+// ---------------------------------------------------------------------------
 export const recipeSignup = onRequest(
   {
-    cors: false, // We'll handle CORS manually for better security
-    memory: '256MiB',
+    cors: false,
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, recaptchaSecretKey],
+    secrets: [recaptchaSecretKey],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({
-        success: false,
-        error: 'Origin not allowed',
-      });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({
-        success: false,
-        error: 'Method not allowed. Use POST.',
-      });
-      return;
-    }
-
-    // Rate limiting: 10 requests per minute per IP
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({
-        success: false,
-        error: 'Too many requests. Please try again later.',
-      });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
-      // Validate required fields
-      const { firstName, email, subscribedToNewsletter, recaptchaToken } = req.body;
+      const { firstName, email, subscribedToNewsletter, recaptchaToken } =
+        req.body;
 
-      // Verify reCAPTCHA
       const recaptchaResult = await verifyRecaptcha(
         recaptchaToken,
         recaptchaSecretKey.value(),
-        'recipe_submit',
-        0.5
+        "recipe_signup",
+        0.5,
       );
-
       if (!recaptchaResult.success) {
-        res.status(400).json({
-          success: false,
-          error: 'Bot detection failed. Please try again.',
-        });
+        res
+          .status(400)
+          .json({
+            success: false,
+            error: "Bot detection failed. Please try again.",
+          });
         return;
       }
 
-      if (!firstName || typeof firstName !== 'string' || firstName.trim() === '') {
-        res.status(400).json({
-          success: false,
-          error: 'First name is required',
-        });
+      if (
+        !firstName ||
+        typeof firstName !== "string" ||
+        firstName.trim() === ""
+      ) {
+        res
+          .status(400)
+          .json({ success: false, error: "First name is required" });
+        return;
+      }
+      if (!email || !isValidEmail(email.trim())) {
+        res
+          .status(400)
+          .json({ success: false, error: "Valid email is required" });
         return;
       }
 
-      if (!email || typeof email !== 'string' || email.trim() === '') {
-        res.status(400).json({
-          success: false,
-          error: 'Email is required',
-        });
-        return;
-      }
-
-      // Validate and sanitize inputs
-      const sanitizedFirstName = sanitizeString(firstName, 100);
-      const sanitizedEmail = email.trim().toLowerCase();
-
-      if (sanitizedFirstName.length === 0) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid first name',
-        });
-        return;
-      }
-
-      if (!isValidEmail(sanitizedEmail)) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid email address',
-        });
-        return;
-      }
-
-      // Newsletter subscription is optional, default to false
-      const isSubscribed = subscribedToNewsletter === true || subscribedToNewsletter === 'true';
-
-      // Append to Google Sheet
-      await appendToRecipeSheet(
-        sanitizedFirstName,
-        sanitizedEmail,
-        isSubscribed
-      );
-
-      res.json({
-        success: true,
-        message: 'Successfully recorded signup',
+      const { date, time } = getFormattedDateTime();
+      await db.collection("leads").add({
+        firstName: sanitizeString(firstName, 100),
+        email: email.trim().toLowerCase(),
+        subscribedToNewsletter: !!subscribedToNewsletter,
+        date,
+        time,
+        createdAt: FieldValue.serverTimestamp(),
       });
 
+      res.json({ success: true, message: "Successfully signed up!" });
     } catch (error) {
-      console.error('Error in recipeSignup:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to record signup. Please try again.',
-      });
+      console.error("Error in recipeSignup:", error);
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to submit. Please try again." });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: contactSubmit
- * Handles contact form submission
- */
+// ---------------------------------------------------------------------------
+// contactSubmit
+// ---------------------------------------------------------------------------
 export const contactSubmit = onRequest(
   {
-    cors: false, // We'll handle CORS manually for better security
-    memory: '256MiB',
+    cors: false,
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, recaptchaSecretKey],
+    secrets: [recaptchaSecretKey],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({
-        success: false,
-        error: 'Origin not allowed',
-      });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({
-        success: false,
-        error: 'Method not allowed. Use POST.',
-      });
-      return;
-    }
-
-    // Rate limiting: 10 requests per minute per IP
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({
-        success: false,
-        error: 'Too many requests. Please try again later.',
-      });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
-      const { firstName, lastName, email, phone, referralSource, subscribedToNewsletter, comments, recaptchaToken } = req.body;
+      const {
+        firstName,
+        lastName,
+        email,
+        phone,
+        referralSource,
+        subscribedToNewsletter,
+        comments,
+        recaptchaToken,
+      } = req.body;
 
-      // Verify reCAPTCHA
       const recaptchaResult = await verifyRecaptcha(
         recaptchaToken,
         recaptchaSecretKey.value(),
-        'contact_submit',
-        0.5
+        "contact_submit",
+        0.5,
       );
-
       if (!recaptchaResult.success) {
-        res.status(400).json({
-          success: false,
-          error: 'Bot detection failed. Please try again.',
-        });
+        res
+          .status(400)
+          .json({
+            success: false,
+            error: "Bot detection failed. Please try again.",
+          });
         return;
       }
 
-      // Validate required fields
-      if (!firstName || typeof firstName !== 'string' || firstName.trim() === '') {
-        res.status(400).json({ success: false, error: 'First name is required' });
+      if (
+        !firstName ||
+        typeof firstName !== "string" ||
+        firstName.trim() === ""
+      ) {
+        res
+          .status(400)
+          .json({ success: false, error: "First name is required" });
+        return;
+      }
+      if (!lastName || typeof lastName !== "string" || lastName.trim() === "") {
+        res
+          .status(400)
+          .json({ success: false, error: "Last name is required" });
+        return;
+      }
+      if (!email || !isValidEmail(email.trim())) {
+        res
+          .status(400)
+          .json({ success: false, error: "Valid email is required" });
+        return;
+      }
+      if (!phone || !isValidPhone(phone.trim())) {
+        res
+          .status(400)
+          .json({ success: false, error: "Valid phone number is required" });
         return;
       }
 
-      if (!lastName || typeof lastName !== 'string' || lastName.trim() === '') {
-        res.status(400).json({ success: false, error: 'Last name is required' });
-        return;
-      }
-
-      if (!email || typeof email !== 'string' || email.trim() === '') {
-        res.status(400).json({ success: false, error: 'Email is required' });
-        return;
-      }
-
-      if (!phone || typeof phone !== 'string' || phone.trim() === '') {
-        res.status(400).json({ success: false, error: 'Phone is required' });
-        return;
-      }
-
-      if (!referralSource || typeof referralSource !== 'string' || referralSource.trim() === '') {
-        res.status(400).json({ success: false, error: 'Referral source is required' });
-        return;
-      }
-
-      // Validate and sanitize inputs
-      const sanitizedFirstName = sanitizeString(firstName, 100);
-      const sanitizedLastName = sanitizeString(lastName, 100);
-      const sanitizedEmail = email.trim().toLowerCase();
-      const sanitizedPhone = phone.trim();
-      const sanitizedReferralSource = sanitizeString(referralSource, 200);
-      const sanitizedComments = comments ? sanitizeString(comments, 1000) : '';
-
-      if (sanitizedFirstName.length === 0) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid first name',
-        });
-        return;
-      }
-
-      if (sanitizedLastName.length === 0) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid last name',
-        });
-        return;
-      }
-
-      if (!isValidEmail(sanitizedEmail)) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid email address',
-        });
-        return;
-      }
-
-      if (!isValidPhone(sanitizedPhone)) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid phone number',
-        });
-        return;
-      }
-
-      const isSubscribed = subscribedToNewsletter === true || subscribedToNewsletter === 'true';
-
-      // Append to Contact Us sheet
-      await appendToContactSheet({
-        firstName: sanitizedFirstName,
-        lastName: sanitizedLastName,
-        email: sanitizedEmail,
-        phone: sanitizedPhone,
-        referralSource: sanitizedReferralSource,
-        subscribedToNewsletter: isSubscribed,
-        comments: sanitizedComments,
+      const { date, time } = getFormattedDateTime();
+      await db.collection("contacts").add({
+        firstName: sanitizeString(firstName, 100),
+        lastName: sanitizeString(lastName, 100),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        referralSource: referralSource
+          ? sanitizeString(referralSource, 200)
+          : "",
+        subscribedToNewsletter: !!subscribedToNewsletter,
+        comments: comments ? sanitizeString(comments, 1000) : "",
+        date,
+        time,
+        createdAt: FieldValue.serverTimestamp(),
       });
 
-      res.json({
-        success: true,
-        message: 'Successfully recorded contact form',
-      });
-
+      res.json({ success: true, message: "Message sent successfully!" });
     } catch (error) {
-      console.error('Error in contactSubmit:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to record contact form. Please try again.',
-      });
+      console.error("Error in contactSubmit:", error);
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to submit. Please try again." });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: buyMeatSubmit
- * Handles buy meat form submission
- */
+// ---------------------------------------------------------------------------
+// buyMeatSubmit
+// ---------------------------------------------------------------------------
 export const buyMeatSubmit = onRequest(
   {
-    cors: false, // We'll handle CORS manually for better security
-    memory: '256MiB',
+    cors: false,
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, recaptchaSecretKey],
+    secrets: [recaptchaSecretKey],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({
-        success: false,
-        error: 'Origin not allowed',
-      });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({
-        success: false,
-        error: 'Method not allowed. Use POST.',
-      });
-      return;
-    }
-
-    // Rate limiting: 10 requests per minute per IP
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({
-        success: false,
-        error: 'Too many requests. Please try again later.',
-      });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
-      const { firstName, lastName, email, phone, product, referralSource, subscribedToNewsletter, comments, recaptchaToken } = req.body;
+      const {
+        firstName,
+        lastName,
+        email,
+        phone,
+        product,
+        referralSource,
+        subscribedToNewsletter,
+        comments,
+        recaptchaToken,
+      } = req.body;
 
-      // Verify reCAPTCHA
       const recaptchaResult = await verifyRecaptcha(
         recaptchaToken,
         recaptchaSecretKey.value(),
-        'buy_meat_submit',
-        0.5
+        "buy_meat_submit",
+        0.5,
       );
-
       if (!recaptchaResult.success) {
-        res.status(400).json({
-          success: false,
-          error: 'Bot detection failed. Please try again.',
-        });
+        res
+          .status(400)
+          .json({
+            success: false,
+            error: "Bot detection failed. Please try again.",
+          });
         return;
       }
 
-      // Validate required fields
-      if (!firstName || typeof firstName !== 'string' || firstName.trim() === '') {
-        res.status(400).json({ success: false, error: 'First name is required' });
+      if (
+        !firstName ||
+        typeof firstName !== "string" ||
+        firstName.trim() === ""
+      ) {
+        res
+          .status(400)
+          .json({ success: false, error: "First name is required" });
+        return;
+      }
+      if (!lastName || typeof lastName !== "string" || lastName.trim() === "") {
+        res
+          .status(400)
+          .json({ success: false, error: "Last name is required" });
+        return;
+      }
+      if (!email || !isValidEmail(email.trim())) {
+        res
+          .status(400)
+          .json({ success: false, error: "Valid email is required" });
+        return;
+      }
+      if (!phone || !isValidPhone(phone.trim())) {
+        res
+          .status(400)
+          .json({ success: false, error: "Valid phone number is required" });
         return;
       }
 
-      if (!lastName || typeof lastName !== 'string' || lastName.trim() === '') {
-        res.status(400).json({ success: false, error: 'Last name is required' });
-        return;
-      }
-
-      if (!email || typeof email !== 'string' || email.trim() === '') {
-        res.status(400).json({ success: false, error: 'Email is required' });
-        return;
-      }
-
-      if (!phone || typeof phone !== 'string' || phone.trim() === '') {
-        res.status(400).json({ success: false, error: 'Phone is required' });
-        return;
-      }
-
-      if (!product || typeof product !== 'string' || product.trim() === '') {
-        res.status(400).json({ success: false, error: 'Product selection is required' });
-        return;
-      }
-
-      if (!referralSource || typeof referralSource !== 'string' || referralSource.trim() === '') {
-        res.status(400).json({ success: false, error: 'Referral source is required' });
-        return;
-      }
-
-      // Validate and sanitize inputs
-      const sanitizedFirstName = sanitizeString(firstName, 100);
-      const sanitizedLastName = sanitizeString(lastName, 100);
-      const sanitizedEmail = email.trim().toLowerCase();
-      const sanitizedPhone = phone.trim();
-      const sanitizedProduct = sanitizeString(product, 200);
-      const sanitizedReferralSource = sanitizeString(referralSource, 200);
-      const sanitizedComments = comments ? sanitizeString(comments, 1000) : '';
-
-      if (sanitizedFirstName.length === 0) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid first name',
-        });
-        return;
-      }
-
-      if (sanitizedLastName.length === 0) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid last name',
-        });
-        return;
-      }
-
-      if (!isValidEmail(sanitizedEmail)) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid email address',
-        });
-        return;
-      }
-
-      if (!isValidPhone(sanitizedPhone)) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid phone number',
-        });
-        return;
-      }
-
-      const isSubscribed = subscribedToNewsletter === true || subscribedToNewsletter === 'true';
-
-      // Append to Buy Meat sheet
-      await appendToBuyMeatSheet({
-        firstName: sanitizedFirstName,
-        lastName: sanitizedLastName,
-        email: sanitizedEmail,
-        phone: sanitizedPhone,
-        product: sanitizedProduct,
-        referralSource: sanitizedReferralSource,
-        subscribedToNewsletter: isSubscribed,
-        comments: sanitizedComments,
+      const { date, time } = getFormattedDateTime();
+      await db.collection("inquiries").add({
+        firstName: sanitizeString(firstName, 100),
+        lastName: sanitizeString(lastName, 100),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        product: product ? sanitizeString(product, 200) : "",
+        referralSource: referralSource
+          ? sanitizeString(referralSource, 200)
+          : "",
+        subscribedToNewsletter: !!subscribedToNewsletter,
+        comments: comments ? sanitizeString(comments, 1000) : "",
+        date,
+        time,
+        createdAt: FieldValue.serverTimestamp(),
       });
 
-      res.json({
-        success: true,
-        message: 'Successfully recorded buy meat inquiry',
-      });
-
+      res.json({ success: true, message: "Inquiry submitted successfully!" });
     } catch (error) {
-      console.error('Error in buyMeatSubmit:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to record buy meat inquiry. Please try again.',
-      });
+      console.error("Error in buyMeatSubmit:", error);
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to submit. Please try again." });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: getEvents
- * Retrieves all events from Google Sheets
- */
+// ---------------------------------------------------------------------------
+// getEvents
+// ---------------------------------------------------------------------------
 export const getEvents = onRequest(
-  {
-    cors: false, // We'll handle CORS manually for better security
-    memory: '256MiB',
-    timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey],
-  },
+  { cors: false, memory: "256MiB", timeoutSeconds: 60 },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "GET")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({
-        success: false,
-        error: 'Origin not allowed',
-      });
-      return;
-    }
-
-    // Only allow GET requests
-    if (req.method !== 'GET') {
-      res.status(405).json({
-        success: false,
-        error: 'Method not allowed. Use GET.',
-      });
-      return;
-    }
-
-    // Rate limiting: 30 requests per minute per IP (higher for read operations)
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 30, 60000)) {
-      res.status(429).json({
-        success: false,
-        error: 'Too many requests. Please try again later.',
-      });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
-      const sheets = await getGoogleSheetsClient();
-
-      // Read all events from the Events sheet
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Events!A2:E', // Skip header row, columns: ID, Name, Date, Time, Type
-      });
-
-      const rows = response.data.values || [];
-      const events = rows.map((row) => ({
-        id: parseInt(row[0]) || 0,
-        name: sanitizeString(row[1] || '', 200),
-        date: sanitizeString(row[2] || '', 50),
-        time: sanitizeString(row[3] || '', 50),
-        type: sanitizeString(row[4] || '', 100),
+      const snapshot = await db
+        .collection("events")
+        .where("active", "==", true)
+        .get();
+      const events = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
       }));
-
-      res.json({
-        success: true,
-        events,
-      });
-
+      res.json({ success: true, events });
     } catch (error) {
-      console.error('Error in getEvents:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to retrieve events. Please try again.',
-        events: [],
-      });
+      console.error("Error in getEvents:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to retrieve events.",
+          events: [],
+        });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: addEvent
- * Adds a new event to Google Sheets (Admin only)
- */
+// ---------------------------------------------------------------------------
+// addEvent
+// ---------------------------------------------------------------------------
 export const addEvent = onRequest(
   {
-    cors: false, // We'll handle CORS manually for better security
-    memory: '256MiB',
+    cors: false,
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, adminPassword],
+    secrets: [adminPassword],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({
-        success: false,
-        error: 'Origin not allowed',
-      });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({
-        success: false,
-        error: 'Method not allowed. Use POST.',
-      });
-      return;
-    }
-
-    // Rate limiting: 10 requests per minute per IP
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({
-        success: false,
-        error: 'Too many requests. Please try again later.',
-      });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
       const { password, name, date, time, type } = req.body;
 
-      // Validate admin password
-      if (!password || typeof password !== 'string') {
-        res.status(401).json({
-          success: false,
-          error: 'Admin password is required',
-        });
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!name || typeof name !== "string" || name.trim() === "") {
+        res
+          .status(400)
+          .json({ success: false, error: "Event name is required" });
+        return;
+      }
+      if (!date || typeof date !== "string" || date.trim() === "") {
+        res
+          .status(400)
+          .json({ success: false, error: "Event date is required" });
         return;
       }
 
-      if (!validateAdminPassword(password, adminPassword.value())) {
-        res.status(401).json({
-          success: false,
-          error: 'Invalid admin password',
-        });
-        return;
-      }
-
-      // Validate required fields
-      if (!name || typeof name !== 'string' || name.trim() === '') {
-        res.status(400).json({ success: false, error: 'Event name is required' });
-        return;
-      }
-
-      if (!date || typeof date !== 'string' || date.trim() === '') {
-        res.status(400).json({ success: false, error: 'Event date is required' });
-        return;
-      }
-
-      if (!time || typeof time !== 'string' || time.trim() === '') {
-        res.status(400).json({ success: false, error: 'Event time is required' });
-        return;
-      }
-
-      if (!type || typeof type !== 'string' || type.trim() === '') {
-        res.status(400).json({ success: false, error: 'Event type is required' });
-        return;
-      }
-
-      // Sanitize inputs
-      const sanitizedName = sanitizeString(name, 200);
-      const sanitizedDate = sanitizeString(date, 50);
-      const sanitizedTime = sanitizeString(time, 50);
-      const sanitizedType = sanitizeString(type, 100);
-
-      if (sanitizedName.length === 0) {
-        res.status(400).json({
-          success: false,
-          error: 'Invalid event name',
-        });
-        return;
-      }
-
-      const sheets = await getGoogleSheetsClient();
-
-      // Get current events to determine next ID
-      const getResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Events!A2:A',
-      });
-
-      const existingIds = (getResponse.data.values || []).map(row => parseInt(row[0]) || 0);
-      const nextId = existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1;
-
-      // Append new event
-      const values = [[nextId, sanitizedName, sanitizedDate, sanitizedTime, sanitizedType]];
-
-      const appendResponse = await sheets.spreadsheets.values.append({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Events!A:E',
-        valueInputOption: 'USER_ENTERED',
-        insertDataOption: 'INSERT_ROWS',
-        resource: { values },
-      });
-
-      console.log('Successfully added event:', {
-        spreadsheetId: SPREADSHEET_ID,
-        updatedRange: appendResponse.data.updates.updatedRange,
-        updatedRows: appendResponse.data.updates.updatedRows,
+      const ref = await db.collection("events").add({
+        name: sanitizeString(name, 200),
+        date: sanitizeString(date, 50),
+        time: time ? sanitizeString(time, 50) : "",
+        type: type ? sanitizeString(type, 100) : "",
+        active: true,
+        createdAt: FieldValue.serverTimestamp(),
       });
 
       res.json({
         success: true,
-        message: 'Successfully added event',
-        event: {
-          id: nextId,
-          name: sanitizedName,
-          date: sanitizedDate,
-          time: sanitizedTime,
-          type: sanitizedType,
-        },
+        message: "Event added successfully",
+        event: { id: ref.id, name, date, time, type },
       });
-
     } catch (error) {
-      console.error('Error in addEvent:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to add event. Please try again.',
-      });
+      console.error("Error in addEvent:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to add event. Please try again.",
+        });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: deleteEvent
- * Deletes an event from Google Sheets by ID (Admin only)
- */
+// ---------------------------------------------------------------------------
+// deleteEvent
+// ---------------------------------------------------------------------------
 export const deleteEvent = onRequest(
   {
-    cors: false, // We'll handle CORS manually for better security
-    memory: '256MiB',
+    cors: false,
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, adminPassword],
+    secrets: [adminPassword],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({
-        success: false,
-        error: 'Origin not allowed',
-      });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({
-        success: false,
-        error: 'Method not allowed. Use POST.',
-      });
-      return;
-    }
-
-    // Rate limiting: 10 requests per minute per IP
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({
-        success: false,
-        error: 'Too many requests. Please try again later.',
-      });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
       const { password, id } = req.body;
 
-      // Validate admin password
-      if (!password || typeof password !== 'string') {
-        res.status(401).json({
-          success: false,
-          error: 'Admin password is required',
-        });
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!id || typeof id !== "string") {
+        res.status(400).json({ success: false, error: "Event ID is required" });
         return;
       }
 
-      if (!validateAdminPassword(password, adminPassword.value())) {
-        res.status(401).json({
-          success: false,
-          error: 'Invalid admin password',
-        });
+      const ref = db.collection("events").doc(id);
+      const doc = await ref.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: "Event not found" });
         return;
       }
 
-      // Validate required fields
-      if (!id || typeof id !== 'number') {
-        res.status(400).json({ success: false, error: 'Event ID is required' });
-        return;
-      }
-
-      const sheets = await getGoogleSheetsClient();
-
-      // Get spreadsheet metadata to find the Events sheet ID
-      const spreadsheetMetadata = await sheets.spreadsheets.get({
-        spreadsheetId: SPREADSHEET_ID,
-      });
-
-      const eventsSheet = spreadsheetMetadata.data.sheets.find(
-        sheet => sheet.properties.title === 'Events'
-      );
-
-      if (!eventsSheet) {
-        res.status(500).json({
-          success: false,
-          error: 'Events sheet not found in spreadsheet',
-        });
-        return;
-      }
-
-      const eventsSheetId = eventsSheet.properties.sheetId;
-
-      // Get all events to find the row number
-      const getResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Events!A2:E',
-      });
-
-      const rows = getResponse.data.values || [];
-      const rowIndex = rows.findIndex(row => parseInt(row[0]) === id);
-
-      if (rowIndex === -1) {
-        res.status(404).json({
-          success: false,
-          error: 'Event not found',
-        });
-        return;
-      }
-
-      // Delete the row (rowIndex + 2 because we start at row 2, and index is 0-based)
-      const actualRowNumber = rowIndex + 2;
-
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId: SPREADSHEET_ID,
-        resource: {
-          requests: [
-            {
-              deleteDimension: {
-                range: {
-                  sheetId: eventsSheetId,
-                  dimension: 'ROWS',
-                  startIndex: actualRowNumber - 1,
-                  endIndex: actualRowNumber,
-                },
-              },
-            },
-          ],
-        },
-      });
-
-      console.log('Successfully deleted event:', { id, rowNumber: actualRowNumber });
-
-      res.json({
-        success: true,
-        message: 'Successfully deleted event',
-      });
-
+      await ref.update({ active: false });
+      res.json({ success: true, message: "Event deleted successfully" });
     } catch (error) {
-      console.error('Error in deleteEvent:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to delete event. Please try again.',
-      });
+      console.error("Error in deleteEvent:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to delete event. Please try again.",
+        });
     }
-  }
+  },
 );
 
-// ========================================
-// STORE FUNCTIONS - Products, Books, Orders
-// ========================================
-
-/**
- * Cloud Function: getProducts
- * Retrieves all active products (meats and merchandise) from Google Sheets
- */
+// ---------------------------------------------------------------------------
+// getProducts
+// ---------------------------------------------------------------------------
 export const getProducts = onRequest(
-  {
-    cors: false,
-    memory: '256MiB',
-    timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey],
-  },
+  { cors: false, memory: "256MiB", timeoutSeconds: 60 },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "GET")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({ success: false, error: 'Origin not allowed' });
-      return;
-    }
-
-    // Only allow GET requests
-    if (req.method !== 'GET') {
-      res.status(405).json({ success: false, error: 'Method not allowed. Use GET.' });
-      return;
-    }
-
-    // Rate limiting: 30 requests per minute per IP
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 30, 60000)) {
-      res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
-      const sheets = await getGoogleSheetsClient();
-
-      // Read all products from the Products sheet
-      // Columns: ID, Category, Name, Description, Price, Quantity, Unit, ImageURL, Active
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Products!A2:I',
-      });
-
-      const rows = response.data.values || [];
-      const products = rows
-        .filter(row => row[8] === 'TRUE') // Only active products
-        .map((row) => ({
-          id: parseInt(row[0]) || 0,
-          category: sanitizeString(row[1] || '', 50),
-          name: sanitizeString(row[2] || '', 200),
-          description: sanitizeString(row[3] || '', 500),
-          price: parseFloat(row[4]) || 0,
-          quantity: parseFloat(row[5]) || 0,
-          unit: sanitizeString(row[6] || '', 20),
-          imageUrl: sanitizeString(row[7] || '', 500),
-        }));
-
-      res.json({
-        success: true,
-        products,
-      });
-
+      const snapshot = await db
+        .collection("products")
+        .where("active", "==", true)
+        .get();
+      const products = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      res.json({ success: true, products });
     } catch (error) {
-      console.error('Error in getProducts:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to retrieve products.',
-        products: [],
-      });
+      console.error("Error in getProducts:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to retrieve products.",
+          products: [],
+        });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: getBooks
- * Retrieves all active books from Google Sheets
- */
+// ---------------------------------------------------------------------------
+// getBooks
+// ---------------------------------------------------------------------------
 export const getBooks = onRequest(
-  {
-    cors: false,
-    memory: '256MiB',
-    timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey],
-  },
+  { cors: false, memory: "256MiB", timeoutSeconds: 60 },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "GET")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({ success: false, error: 'Origin not allowed' });
-      return;
-    }
-
-    // Only allow GET requests
-    if (req.method !== 'GET') {
-      res.status(405).json({ success: false, error: 'Method not allowed. Use GET.' });
-      return;
-    }
-
-    // Rate limiting: 30 requests per minute per IP
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 30, 60000)) {
-      res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
-      const sheets = await getGoogleSheetsClient();
-
-      // Read all books from the Books sheet
-      // Columns: ID, Title, Author, ExternalURL, ImageURL, Active
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Books!A2:F',
-      });
-
-      const rows = response.data.values || [];
-      const books = rows
-        .filter(row => row[5] === 'TRUE') // Only active books
-        .map((row) => ({
-          id: parseInt(row[0]) || 0,
-          title: sanitizeString(row[1] || '', 200),
-          author: sanitizeString(row[2] || '', 200),
-          externalUrl: sanitizeString(row[3] || '', 500),
-          imageUrl: sanitizeString(row[4] || '', 500),
-        }));
-
-      res.json({
-        success: true,
-        books,
-      });
-
+      const snapshot = await db
+        .collection("books")
+        .where("active", "==", true)
+        .get();
+      const books = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      res.json({ success: true, books });
     } catch (error) {
-      console.error('Error in getBooks:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to retrieve books.',
-        books: [],
-      });
+      console.error("Error in getBooks:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to retrieve books.",
+          books: [],
+        });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: addProduct
- * Adds a new product (meat or merchandise) to Google Sheets (Admin only)
- */
+// ---------------------------------------------------------------------------
+// addProduct
+// ---------------------------------------------------------------------------
 export const addProduct = onRequest(
   {
     cors: false,
-    memory: '256MiB',
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, adminPassword],
+    secrets: [adminPassword],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({ success: false, error: 'Origin not allowed' });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({ success: false, error: 'Method not allowed. Use POST.' });
-      return;
-    }
-
-    // Rate limiting
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
-      const { password, category, name, description, price, quantity, unit, imageUrl } = req.body;
+      const {
+        password,
+        category,
+        name,
+        description,
+        price,
+        quantity,
+        unit,
+        imageUrl,
+      } = req.body;
 
-      // Validate admin password
-      if (!password || !validateAdminPassword(password, adminPassword.value())) {
-        res.status(401).json({ success: false, error: 'Invalid admin password' });
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!category || !["meat", "merchandise"].includes(category)) {
+        res
+          .status(400)
+          .json({
+            success: false,
+            error: 'Category must be "meat" or "merchandise"',
+          });
+        return;
+      }
+      if (!name || typeof name !== "string" || name.trim() === "") {
+        res
+          .status(400)
+          .json({ success: false, error: "Product name is required" });
+        return;
+      }
+      if (
+        price === undefined ||
+        isNaN(parseFloat(price)) ||
+        parseFloat(price) < 0
+      ) {
+        res
+          .status(400)
+          .json({ success: false, error: "Valid price is required" });
+        return;
+      }
+      if (
+        quantity === undefined ||
+        isNaN(parseFloat(quantity)) ||
+        parseFloat(quantity) < 0
+      ) {
+        res
+          .status(400)
+          .json({ success: false, error: "Valid quantity is required" });
         return;
       }
 
-      // Validate required fields
-      if (!category || !['meat', 'merchandise'].includes(category)) {
-        res.status(400).json({ success: false, error: 'Category must be "meat" or "merchandise"' });
-        return;
-      }
+      const data = {
+        category: sanitizeString(category, 50),
+        name: sanitizeString(name, 200),
+        description: description ? sanitizeString(description, 500) : "",
+        price: parseFloat(price),
+        quantity: parseFloat(quantity),
+        unit: unit
+          ? sanitizeString(unit, 20)
+          : category === "meat"
+            ? "lb"
+            : "item",
+        imageUrl: imageUrl ? sanitizeString(imageUrl, 500) : "",
+        active: true,
+        createdAt: FieldValue.serverTimestamp(),
+      };
 
-      if (!name || typeof name !== 'string' || name.trim() === '') {
-        res.status(400).json({ success: false, error: 'Product name is required' });
-        return;
-      }
-
-      if (price === undefined || isNaN(parseFloat(price)) || parseFloat(price) < 0) {
-        res.status(400).json({ success: false, error: 'Valid price is required' });
-        return;
-      }
-
-      if (quantity === undefined || isNaN(parseFloat(quantity)) || parseFloat(quantity) < 0) {
-        res.status(400).json({ success: false, error: 'Valid quantity is required' });
-        return;
-      }
-
-      // Sanitize inputs
-      const sanitizedCategory = sanitizeString(category, 50);
-      const sanitizedName = sanitizeString(name, 200);
-      const sanitizedDescription = description ? sanitizeString(description, 500) : '';
-      const sanitizedPrice = parseFloat(price);
-      const sanitizedQuantity = parseFloat(quantity);
-      const sanitizedUnit = unit ? sanitizeString(unit, 20) : (category === 'meat' ? 'lb' : 'item');
-      const sanitizedImageUrl = imageUrl ? sanitizeString(imageUrl, 500) : '';
-
-      const sheets = await getGoogleSheetsClient();
-
-      // Get current products to determine next ID
-      const getResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Products!A2:A',
-      });
-
-      const existingIds = (getResponse.data.values || []).map(row => parseInt(row[0]) || 0);
-      const nextId = existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1;
-
-      // Append new product
-      const values = [[
-        nextId,
-        sanitizedCategory,
-        sanitizedName,
-        sanitizedDescription,
-        sanitizedPrice,
-        sanitizedQuantity,
-        sanitizedUnit,
-        sanitizedImageUrl,
-        'TRUE', // Active
-      ]];
-
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Products!A:I',
-        valueInputOption: 'USER_ENTERED',
-        insertDataOption: 'INSERT_ROWS',
-        resource: { values },
-      });
-
-      console.log('Successfully added product:', { id: nextId, name: sanitizedName });
+      const ref = await db.collection("products").add(data);
 
       res.json({
         success: true,
-        message: 'Successfully added product',
-        product: {
-          id: nextId,
-          category: sanitizedCategory,
-          name: sanitizedName,
-          description: sanitizedDescription,
-          price: sanitizedPrice,
-          quantity: sanitizedQuantity,
-          unit: sanitizedUnit,
-          imageUrl: sanitizedImageUrl,
-        },
+        message: "Successfully added product",
+        product: { id: ref.id, ...data },
       });
-
     } catch (error) {
-      console.error('Error in addProduct:', error);
-      res.status(500).json({ success: false, error: 'Failed to add product. Please try again.' });
+      console.error("Error in addProduct:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to add product. Please try again.",
+        });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: updateProduct
- * Updates an existing product in Google Sheets (Admin only)
- */
+// ---------------------------------------------------------------------------
+// updateProduct
+// ---------------------------------------------------------------------------
 export const updateProduct = onRequest(
   {
     cors: false,
-    memory: '256MiB',
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, adminPassword],
+    secrets: [adminPassword],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({ success: false, error: 'Origin not allowed' });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({ success: false, error: 'Method not allowed. Use POST.' });
-      return;
-    }
-
-    // Rate limiting
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
-      const { password, id, name, description, price, quantity, unit, imageUrl } = req.body;
-
-      // Validate admin password
-      if (!password || !validateAdminPassword(password, adminPassword.value())) {
-        res.status(401).json({ success: false, error: 'Invalid admin password' });
-        return;
-      }
-
-      // Validate ID
-      if (!id || typeof id !== 'number') {
-        res.status(400).json({ success: false, error: 'Product ID is required' });
-        return;
-      }
-
-      const sheets = await getGoogleSheetsClient();
-
-      // Get all products to find the row
-      const getResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Products!A2:I',
-      });
-
-      const rows = getResponse.data.values || [];
-      const rowIndex = rows.findIndex(row => parseInt(row[0]) === id);
-
-      if (rowIndex === -1) {
-        res.status(404).json({ success: false, error: 'Product not found' });
-        return;
-      }
-
-      const actualRowNumber = rowIndex + 2;
-      const currentRow = rows[rowIndex];
-
-      // Build updated row with current values as fallback
-      const updatedValues = [[
+      const {
+        password,
         id,
-        currentRow[1], // category stays the same
-        name !== undefined ? sanitizeString(name, 200) : currentRow[2],
-        description !== undefined ? sanitizeString(description, 500) : currentRow[3],
-        price !== undefined ? parseFloat(price) : currentRow[4],
-        quantity !== undefined ? parseFloat(quantity) : currentRow[5],
-        unit !== undefined ? sanitizeString(unit, 20) : currentRow[6],
-        imageUrl !== undefined ? sanitizeString(imageUrl, 500) : currentRow[7],
-        currentRow[8], // active stays the same
-      ]];
+        category,
+        name,
+        description,
+        price,
+        quantity,
+        unit,
+        imageUrl,
+      } = req.body;
 
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `Products!A${actualRowNumber}:I${actualRowNumber}`,
-        valueInputOption: 'USER_ENTERED',
-        resource: { values: updatedValues },
-      });
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!id || typeof id !== "string") {
+        res
+          .status(400)
+          .json({ success: false, error: "Product ID is required" });
+        return;
+      }
 
-      console.log('Successfully updated product:', { id });
+      const ref = db.collection("products").doc(id);
+      const doc = await ref.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: "Product not found" });
+        return;
+      }
 
-      res.json({
-        success: true,
-        message: 'Successfully updated product',
-        product: {
-          id: updatedValues[0][0],
-          category: updatedValues[0][1],
-          name: updatedValues[0][2],
-          description: updatedValues[0][3],
-          price: updatedValues[0][4],
-          quantity: updatedValues[0][5],
-          unit: updatedValues[0][6],
-          imageUrl: updatedValues[0][7],
-        },
-      });
+      const updates = {};
+      if (category !== undefined)
+        updates.category = sanitizeString(category, 50);
+      if (name !== undefined) updates.name = sanitizeString(name, 200);
+      if (description !== undefined)
+        updates.description = sanitizeString(description, 500);
+      if (price !== undefined) updates.price = parseFloat(price);
+      if (quantity !== undefined) updates.quantity = parseFloat(quantity);
+      if (unit !== undefined) updates.unit = sanitizeString(unit, 20);
+      if (imageUrl !== undefined)
+        updates.imageUrl = sanitizeString(imageUrl, 500);
+      updates.updatedAt = FieldValue.serverTimestamp();
 
+      await ref.update(updates);
+      res.json({ success: true, message: "Product updated successfully" });
     } catch (error) {
-      console.error('Error in updateProduct:', error);
-      res.status(500).json({ success: false, error: 'Failed to update product. Please try again.' });
+      console.error("Error in updateProduct:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to update product. Please try again.",
+        });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: deleteProduct
- * Deactivates a product in Google Sheets (Admin only)
- */
+// ---------------------------------------------------------------------------
+// deleteProduct
+// ---------------------------------------------------------------------------
 export const deleteProduct = onRequest(
   {
     cors: false,
-    memory: '256MiB',
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, adminPassword],
+    secrets: [adminPassword],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({ success: false, error: 'Origin not allowed' });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({ success: false, error: 'Method not allowed. Use POST.' });
-      return;
-    }
-
-    // Rate limiting
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
       const { password, id } = req.body;
 
-      // Validate admin password
-      if (!password || !validateAdminPassword(password, adminPassword.value())) {
-        res.status(401).json({ success: false, error: 'Invalid admin password' });
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!id || typeof id !== "string") {
+        res
+          .status(400)
+          .json({ success: false, error: "Product ID is required" });
         return;
       }
 
-      // Validate ID
-      if (!id || typeof id !== 'number') {
-        res.status(400).json({ success: false, error: 'Product ID is required' });
+      const ref = db.collection("products").doc(id);
+      const doc = await ref.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: "Product not found" });
         return;
       }
 
-      const sheets = await getGoogleSheetsClient();
-
-      // Get all products to find the row
-      const getResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Products!A2:I',
+      await ref.update({
+        active: false,
+        updatedAt: FieldValue.serverTimestamp(),
       });
-
-      const rows = getResponse.data.values || [];
-      const rowIndex = rows.findIndex(row => parseInt(row[0]) === id);
-
-      if (rowIndex === -1) {
-        res.status(404).json({ success: false, error: 'Product not found' });
-        return;
-      }
-
-      const actualRowNumber = rowIndex + 2;
-
-      // Set Active to FALSE instead of deleting
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `Products!I${actualRowNumber}`,
-        valueInputOption: 'USER_ENTERED',
-        resource: { values: [['FALSE']] },
-      });
-
-      console.log('Successfully deactivated product:', { id });
-
-      res.json({
-        success: true,
-        message: 'Successfully deleted product',
-      });
-
+      res.json({ success: true, message: "Product deleted successfully" });
     } catch (error) {
-      console.error('Error in deleteProduct:', error);
-      res.status(500).json({ success: false, error: 'Failed to delete product. Please try again.' });
+      console.error("Error in deleteProduct:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to delete product. Please try again.",
+        });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: addBook
- * Adds a new book to Google Sheets (Admin only)
- */
+// ---------------------------------------------------------------------------
+// addBook
+// ---------------------------------------------------------------------------
 export const addBook = onRequest(
   {
     cors: false,
-    memory: '256MiB',
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, adminPassword],
+    secrets: [adminPassword],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({ success: false, error: 'Origin not allowed' });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({ success: false, error: 'Method not allowed. Use POST.' });
-      return;
-    }
-
-    // Rate limiting
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
       const { password, title, author, externalUrl, imageUrl } = req.body;
 
-      // Validate admin password
-      if (!password || !validateAdminPassword(password, adminPassword.value())) {
-        res.status(401).json({ success: false, error: 'Invalid admin password' });
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!title || typeof title !== "string" || title.trim() === "") {
+        res
+          .status(400)
+          .json({ success: false, error: "Book title is required" });
+        return;
+      }
+      if (!author || typeof author !== "string" || author.trim() === "") {
+        res.status(400).json({ success: false, error: "Author is required" });
+        return;
+      }
+      if (
+        !externalUrl ||
+        typeof externalUrl !== "string" ||
+        externalUrl.trim() === ""
+      ) {
+        res
+          .status(400)
+          .json({ success: false, error: "External URL is required" });
         return;
       }
 
-      // Validate required fields
-      if (!title || typeof title !== 'string' || title.trim() === '') {
-        res.status(400).json({ success: false, error: 'Book title is required' });
-        return;
-      }
+      const data = {
+        title: sanitizeString(title, 200),
+        author: sanitizeString(author, 200),
+        externalUrl: sanitizeString(externalUrl, 500),
+        imageUrl: imageUrl ? sanitizeString(imageUrl, 500) : "",
+        active: true,
+        createdAt: FieldValue.serverTimestamp(),
+      };
 
-      if (!author || typeof author !== 'string' || author.trim() === '') {
-        res.status(400).json({ success: false, error: 'Author is required' });
-        return;
-      }
-
-      if (!externalUrl || typeof externalUrl !== 'string' || externalUrl.trim() === '') {
-        res.status(400).json({ success: false, error: 'External URL is required' });
-        return;
-      }
-
-      // Sanitize inputs
-      const sanitizedTitle = sanitizeString(title, 200);
-      const sanitizedAuthor = sanitizeString(author, 200);
-      const sanitizedExternalUrl = sanitizeString(externalUrl, 500);
-      const sanitizedImageUrl = imageUrl ? sanitizeString(imageUrl, 500) : '';
-
-      const sheets = await getGoogleSheetsClient();
-
-      // Get current books to determine next ID
-      const getResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Books!A2:A',
-      });
-
-      const existingIds = (getResponse.data.values || []).map(row => parseInt(row[0]) || 0);
-      const nextId = existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1;
-
-      // Append new book
-      const values = [[
-        nextId,
-        sanitizedTitle,
-        sanitizedAuthor,
-        sanitizedExternalUrl,
-        sanitizedImageUrl,
-        'TRUE', // Active
-      ]];
-
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Books!A:F',
-        valueInputOption: 'USER_ENTERED',
-        insertDataOption: 'INSERT_ROWS',
-        resource: { values },
-      });
-
-      console.log('Successfully added book:', { id: nextId, title: sanitizedTitle });
+      const ref = await db.collection("books").add(data);
 
       res.json({
         success: true,
-        message: 'Successfully added book',
-        book: {
-          id: nextId,
-          title: sanitizedTitle,
-          author: sanitizedAuthor,
-          externalUrl: sanitizedExternalUrl,
-          imageUrl: sanitizedImageUrl,
-        },
+        message: "Successfully added book",
+        book: { id: ref.id, ...data },
       });
-
     } catch (error) {
-      console.error('Error in addBook:', error);
-      res.status(500).json({ success: false, error: 'Failed to add book. Please try again.' });
+      console.error("Error in addBook:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to add book. Please try again.",
+        });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: updateBook
- * Updates an existing book in Google Sheets (Admin only)
- */
+// ---------------------------------------------------------------------------
+// updateBook
+// ---------------------------------------------------------------------------
 export const updateBook = onRequest(
   {
     cors: false,
-    memory: '256MiB',
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, adminPassword],
+    secrets: [adminPassword],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({ success: false, error: 'Origin not allowed' });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({ success: false, error: 'Method not allowed. Use POST.' });
-      return;
-    }
-
-    // Rate limiting
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
       const { password, id, title, author, externalUrl, imageUrl } = req.body;
 
-      // Validate admin password
-      if (!password || !validateAdminPassword(password, adminPassword.value())) {
-        res.status(401).json({ success: false, error: 'Invalid admin password' });
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!id || typeof id !== "string") {
+        res.status(400).json({ success: false, error: "Book ID is required" });
         return;
       }
 
-      // Validate ID
-      if (!id || typeof id !== 'number') {
-        res.status(400).json({ success: false, error: 'Book ID is required' });
+      const ref = db.collection("books").doc(id);
+      const doc = await ref.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: "Book not found" });
         return;
       }
 
-      const sheets = await getGoogleSheetsClient();
+      const updates = {};
+      if (title !== undefined) updates.title = sanitizeString(title, 200);
+      if (author !== undefined) updates.author = sanitizeString(author, 200);
+      if (externalUrl !== undefined)
+        updates.externalUrl = sanitizeString(externalUrl, 500);
+      if (imageUrl !== undefined)
+        updates.imageUrl = sanitizeString(imageUrl, 500);
+      updates.updatedAt = FieldValue.serverTimestamp();
 
-      // Get all books to find the row
-      const getResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Books!A2:F',
-      });
-
-      const rows = getResponse.data.values || [];
-      const rowIndex = rows.findIndex(row => parseInt(row[0]) === id);
-
-      if (rowIndex === -1) {
-        res.status(404).json({ success: false, error: 'Book not found' });
-        return;
-      }
-
-      const actualRowNumber = rowIndex + 2;
-      const currentRow = rows[rowIndex];
-
-      // Build updated row
-      const updatedValues = [[
-        id,
-        title !== undefined ? sanitizeString(title, 200) : currentRow[1],
-        author !== undefined ? sanitizeString(author, 200) : currentRow[2],
-        externalUrl !== undefined ? sanitizeString(externalUrl, 500) : currentRow[3],
-        imageUrl !== undefined ? sanitizeString(imageUrl, 500) : currentRow[4],
-        currentRow[5], // active stays the same
-      ]];
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `Books!A${actualRowNumber}:F${actualRowNumber}`,
-        valueInputOption: 'USER_ENTERED',
-        resource: { values: updatedValues },
-      });
-
-      console.log('Successfully updated book:', { id });
-
-      res.json({
-        success: true,
-        message: 'Successfully updated book',
-        book: {
-          id: updatedValues[0][0],
-          title: updatedValues[0][1],
-          author: updatedValues[0][2],
-          externalUrl: updatedValues[0][3],
-          imageUrl: updatedValues[0][4],
-        },
-      });
-
+      await ref.update(updates);
+      res.json({ success: true, message: "Book updated successfully" });
     } catch (error) {
-      console.error('Error in updateBook:', error);
-      res.status(500).json({ success: false, error: 'Failed to update book. Please try again.' });
+      console.error("Error in updateBook:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to update book. Please try again.",
+        });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: deleteBook
- * Deactivates a book in Google Sheets (Admin only)
- */
+// ---------------------------------------------------------------------------
+// deleteBook
+// ---------------------------------------------------------------------------
 export const deleteBook = onRequest(
   {
     cors: false,
-    memory: '256MiB',
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, adminPassword],
+    secrets: [adminPassword],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({ success: false, error: 'Origin not allowed' });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({ success: false, error: 'Method not allowed. Use POST.' });
-      return;
-    }
-
-    // Rate limiting
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
       const { password, id } = req.body;
 
-      // Validate admin password
-      if (!password || !validateAdminPassword(password, adminPassword.value())) {
-        res.status(401).json({ success: false, error: 'Invalid admin password' });
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!id || typeof id !== "string") {
+        res.status(400).json({ success: false, error: "Book ID is required" });
         return;
       }
 
-      // Validate ID
-      if (!id || typeof id !== 'number') {
-        res.status(400).json({ success: false, error: 'Book ID is required' });
+      const ref = db.collection("books").doc(id);
+      const doc = await ref.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: "Book not found" });
         return;
       }
 
-      const sheets = await getGoogleSheetsClient();
-
-      // Get all books to find the row
-      const getResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Books!A2:F',
+      await ref.update({
+        active: false,
+        updatedAt: FieldValue.serverTimestamp(),
       });
-
-      const rows = getResponse.data.values || [];
-      const rowIndex = rows.findIndex(row => parseInt(row[0]) === id);
-
-      if (rowIndex === -1) {
-        res.status(404).json({ success: false, error: 'Book not found' });
-        return;
-      }
-
-      const actualRowNumber = rowIndex + 2;
-
-      // Set Active to FALSE
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `Books!F${actualRowNumber}`,
-        valueInputOption: 'USER_ENTERED',
-        resource: { values: [['FALSE']] },
-      });
-
-      console.log('Successfully deactivated book:', { id });
-
-      res.json({
-        success: true,
-        message: 'Successfully deleted book',
-      });
-
+      res.json({ success: true, message: "Book deleted successfully" });
     } catch (error) {
-      console.error('Error in deleteBook:', error);
-      res.status(500).json({ success: false, error: 'Failed to delete book. Please try again.' });
+      console.error("Error in deleteBook:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to delete book. Please try again.",
+        });
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: submitOrder
- * Submits an order and decrements product inventory
- */
+// ---------------------------------------------------------------------------
+// submitOrder
+// ---------------------------------------------------------------------------
 export const submitOrder = onRequest(
   {
     cors: false,
-    memory: '256MiB',
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, recaptchaSecretKey],
+    secrets: [recaptchaSecretKey],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({ success: false, error: 'Origin not allowed' });
-      return;
-    }
-
-    // Only allow POST requests
-    if (req.method !== 'POST') {
-      res.status(405).json({ success: false, error: 'Method not allowed. Use POST.' });
-      return;
-    }
-
-    // Rate limiting
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 10, 60000)) {
-      res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
       const {
-        firstName, lastName, email, phone,
-        address, city, state, zip,
-        productId, quantity,
+        firstName,
+        lastName,
+        email,
+        phone,
+        address,
+        city,
+        state,
+        zip,
+        productId,
+        quantity,
         recaptchaToken,
       } = req.body;
 
-      // Verify reCAPTCHA
       const recaptchaResult = await verifyRecaptcha(
         recaptchaToken,
         recaptchaSecretKey.value(),
-        'order_submit',
-        0.5
+        "order_submit",
+        0.5,
       );
-
       if (!recaptchaResult.success) {
-        res.status(400).json({ success: false, error: 'Bot detection failed. Please try again.' });
+        res
+          .status(400)
+          .json({
+            success: false,
+            error: "Bot detection failed. Please try again.",
+          });
         return;
       }
 
-      // Validate required fields
-      if (!firstName || typeof firstName !== 'string' || firstName.trim() === '') {
-        res.status(400).json({ success: false, error: 'First name is required' });
+      if (
+        !firstName ||
+        typeof firstName !== "string" ||
+        firstName.trim() === ""
+      ) {
+        res
+          .status(400)
+          .json({ success: false, error: "First name is required" });
         return;
       }
-
-      if (!lastName || typeof lastName !== 'string' || lastName.trim() === '') {
-        res.status(400).json({ success: false, error: 'Last name is required' });
+      if (!lastName || typeof lastName !== "string" || lastName.trim() === "") {
+        res
+          .status(400)
+          .json({ success: false, error: "Last name is required" });
         return;
       }
-
       if (!email || !isValidEmail(email.trim())) {
-        res.status(400).json({ success: false, error: 'Valid email is required' });
+        res
+          .status(400)
+          .json({ success: false, error: "Valid email is required" });
         return;
       }
-
       if (!phone || !isValidPhone(phone.trim())) {
-        res.status(400).json({ success: false, error: 'Valid phone is required' });
+        res
+          .status(400)
+          .json({ success: false, error: "Valid phone is required" });
         return;
       }
-
-      if (!address || typeof address !== 'string' || address.trim() === '') {
-        res.status(400).json({ success: false, error: 'Address is required' });
+      if (!address || typeof address !== "string" || address.trim() === "") {
+        res.status(400).json({ success: false, error: "Address is required" });
         return;
       }
-
-      if (!city || typeof city !== 'string' || city.trim() === '') {
-        res.status(400).json({ success: false, error: 'City is required' });
+      if (!city || typeof city !== "string" || city.trim() === "") {
+        res.status(400).json({ success: false, error: "City is required" });
         return;
       }
-
-      if (!state || typeof state !== 'string' || state.trim() === '') {
-        res.status(400).json({ success: false, error: 'State is required' });
+      if (!state || typeof state !== "string" || state.trim() === "") {
+        res.status(400).json({ success: false, error: "State is required" });
         return;
       }
-
-      if (!zip || typeof zip !== 'string' || zip.trim() === '') {
-        res.status(400).json({ success: false, error: 'ZIP code is required' });
+      if (!zip || typeof zip !== "string" || zip.trim() === "") {
+        res.status(400).json({ success: false, error: "ZIP code is required" });
         return;
       }
-
-      if (!productId || typeof productId !== 'number') {
-        res.status(400).json({ success: false, error: 'Product ID is required' });
+      if (!productId || typeof productId !== "string") {
+        res
+          .status(400)
+          .json({ success: false, error: "Product ID is required" });
         return;
       }
-
-      if (!quantity || typeof quantity !== 'number' || quantity <= 0) {
-        res.status(400).json({ success: false, error: 'Valid quantity is required' });
+      if (!quantity || typeof quantity !== "number" || quantity <= 0) {
+        res
+          .status(400)
+          .json({ success: false, error: "Valid quantity is required" });
         return;
       }
-
-      const sheets = await getGoogleSheetsClient();
-
-      // Get product to verify availability
-      const productResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Products!A2:I',
-      });
-
-      const products = productResponse.data.values || [];
-      const productRowIndex = products.findIndex(row => parseInt(row[0]) === productId);
-
-      if (productRowIndex === -1) {
-        res.status(404).json({ success: false, error: 'Product not found' });
-        return;
-      }
-
-      const product = products[productRowIndex];
-      const availableQty = parseFloat(product[5]) || 0;
-
-      if (quantity > availableQty) {
-        res.status(400).json({
-          success: false,
-          error: `Insufficient inventory. Only ${availableQty} available.`,
-        });
-        return;
-      }
-
-      // Calculate order total
-      const pricePerUnit = parseFloat(product[4]) || 0;
-      const total = pricePerUnit * quantity;
-
-      // Get next order ID
-      const orderResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Orders!A2:A',
-      });
-
-      const existingOrderIds = (orderResponse.data.values || []).map(row => parseInt(row[0]) || 0);
-      const nextOrderId = existingOrderIds.length > 0 ? Math.max(...existingOrderIds) + 1 : 1;
 
       const { date, time } = getFormattedDateTime();
 
-      // Sanitize inputs
-      const sanitizedFirstName = sanitizeString(firstName, 100);
-      const sanitizedLastName = sanitizeString(lastName, 100);
-      const sanitizedEmail = email.trim().toLowerCase();
-      const sanitizedPhone = phone.trim();
-      const sanitizedAddress = sanitizeString(address, 200);
-      const sanitizedCity = sanitizeString(city, 100);
-      const sanitizedState = sanitizeString(state, 50);
-      const sanitizedZip = sanitizeString(zip, 20);
+      // Use a transaction to check inventory and decrement atomically
+      const result = await db.runTransaction(async (transaction) => {
+        const productRef = db.collection("products").doc(productId);
+        const productDoc = await transaction.get(productRef);
 
-      // Append order
-      const orderValues = [[
-        nextOrderId,
-        date,
-        time,
-        sanitizedFirstName,
-        sanitizedLastName,
-        sanitizedEmail,
-        sanitizedPhone,
-        sanitizedAddress,
-        sanitizedCity,
-        sanitizedState,
-        sanitizedZip,
-        productId,
-        product[2], // Product name
-        quantity,
-        pricePerUnit,
-        total,
-        'pending',
-      ]];
+        if (!productDoc.exists || !productDoc.data().active) {
+          throw Object.assign(new Error("Product not found"), {
+            statusCode: 404,
+          });
+        }
 
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Orders!A:Q',
-        valueInputOption: 'USER_ENTERED',
-        insertDataOption: 'INSERT_ROWS',
-        resource: { values: orderValues },
+        const productData = productDoc.data();
+        const availableQty = productData.quantity || 0;
+
+        if (quantity > availableQty) {
+          throw Object.assign(
+            new Error(
+              `Insufficient inventory. Only ${availableQty} available.`,
+            ),
+            { statusCode: 400 },
+          );
+        }
+
+        const pricePerUnit = productData.price || 0;
+        const total = pricePerUnit * quantity;
+
+        const orderRef = db.collection("orders").doc();
+        transaction.set(orderRef, {
+          firstName: sanitizeString(firstName, 100),
+          lastName: sanitizeString(lastName, 100),
+          email: email.trim().toLowerCase(),
+          phone: phone.trim(),
+          address: sanitizeString(address, 200),
+          city: sanitizeString(city, 100),
+          state: sanitizeString(state, 50),
+          zip: sanitizeString(zip, 20),
+          productId,
+          productName: productData.name,
+          quantity,
+          pricePerUnit,
+          total,
+          status: "pending",
+          date,
+          time,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        transaction.update(productRef, { quantity: availableQty - quantity });
+
+        return { orderId: orderRef.id, total };
       });
-
-      // Decrement inventory
-      const newQuantity = availableQty - quantity;
-      const productRowNumber = productRowIndex + 2;
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `Products!F${productRowNumber}`,
-        valueInputOption: 'USER_ENTERED',
-        resource: { values: [[newQuantity]] },
-      });
-
-      console.log('Successfully submitted order:', { orderId: nextOrderId, productId, quantity });
 
       res.json({
         success: true,
-        message: 'Order submitted successfully!',
-        orderId: nextOrderId,
-        total: total.toFixed(2),
+        message: "Order submitted successfully!",
+        orderId: result.orderId,
+        total: result.total.toFixed(2),
       });
-
     } catch (error) {
-      console.error('Error in submitOrder:', error);
-      res.status(500).json({ success: false, error: 'Failed to submit order. Please try again.' });
+      console.error("Error in submitOrder:", error);
+      if (error.statusCode === 404) {
+        res.status(404).json({ success: false, error: error.message });
+      } else if (error.statusCode === 400) {
+        res.status(400).json({ success: false, error: error.message });
+      } else {
+        res
+          .status(500)
+          .json({
+            success: false,
+            error: "Failed to submit order. Please try again.",
+          });
+      }
     }
-  }
+  },
 );
 
-/**
- * Cloud Function: getOrders
- * Retrieves all orders from Google Sheets (Admin only)
- */
+// ---------------------------------------------------------------------------
+// getOrders (admin)
+// ---------------------------------------------------------------------------
 export const getOrders = onRequest(
   {
     cors: false,
-    memory: '256MiB',
+    memory: "256MiB",
     timeoutSeconds: 60,
-    secrets: [googleServiceAccountKey, adminPassword],
+    secrets: [adminPassword],
   },
   async (req, res) => {
-    // Handle CORS preflight
-    if (req.method === 'OPTIONS') {
-      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
-        res.status(204).send('');
-      } else {
-        res.status(403).send('Origin not allowed');
-      }
-      return;
-    }
+    if (!handleCorsAndMethod(req, res, "POST")) return;
 
-    // Apply CORS for actual request
-    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
-      res.status(403).json({ success: false, error: 'Origin not allowed' });
-      return;
-    }
-
-    // Only allow POST requests (to include password)
-    if (req.method !== 'POST') {
-      res.status(405).json({ success: false, error: 'Method not allowed. Use POST.' });
-      return;
-    }
-
-    // Rate limiting
     const clientIP = getClientIP(req);
     if (!checkRateLimit(clientIP, 30, 60000)) {
-      res.status(429).json({ success: false, error: 'Too many requests. Please try again later.' });
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
       return;
     }
 
     try {
       const { password } = req.body;
 
-      // Validate admin password
-      if (!password || !validateAdminPassword(password, adminPassword.value())) {
-        res.status(401).json({ success: false, error: 'Invalid admin password' });
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
         return;
       }
 
-      const sheets = await getGoogleSheetsClient();
-
-      // Read all orders
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: 'Orders!A2:Q',
-      });
-
-      const rows = response.data.values || [];
-      const orders = rows.map((row) => ({
-        id: parseInt(row[0]) || 0,
-        date: sanitizeString(row[1] || '', 50),
-        time: sanitizeString(row[2] || '', 50),
-        firstName: sanitizeString(row[3] || '', 100),
-        lastName: sanitizeString(row[4] || '', 100),
-        email: sanitizeString(row[5] || '', 200),
-        phone: sanitizeString(row[6] || '', 50),
-        address: sanitizeString(row[7] || '', 200),
-        city: sanitizeString(row[8] || '', 100),
-        state: sanitizeString(row[9] || '', 50),
-        zip: sanitizeString(row[10] || '', 20),
-        productId: parseInt(row[11]) || 0,
-        productName: sanitizeString(row[12] || '', 200),
-        quantity: parseFloat(row[13]) || 0,
-        pricePerUnit: parseFloat(row[14]) || 0,
-        total: parseFloat(row[15]) || 0,
-        status: sanitizeString(row[16] || 'pending', 50),
+      const snapshot = await db
+        .collection("orders")
+        .orderBy("createdAt", "desc")
+        .get();
+      const orders = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
       }));
 
-      // Sort by most recent first
-      orders.reverse();
+      res.json({ success: true, orders });
+    } catch (error) {
+      console.error("Error in getOrders:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to retrieve orders.",
+          orders: [],
+        });
+    }
+  },
+);
 
+// ---------------------------------------------------------------------------
+// getLeads (admin) — recipe/waitlist signups
+// ---------------------------------------------------------------------------
+export const getLeads = onRequest(
+  {
+    cors: false,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [adminPassword],
+  },
+  async (req, res) => {
+    if (!handleCorsAndMethod(req, res, "POST")) return;
+
+    const clientIP = getClientIP(req);
+    if (!checkRateLimit(clientIP, 30, 60000)) {
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
+      return;
+    }
+
+    try {
+      const { password } = req.body;
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+
+      const snapshot = await db
+        .collection("leads")
+        .orderBy("createdAt", "desc")
+        .get();
+      const leads = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      res.json({ success: true, leads });
+    } catch (error) {
+      console.error("Error in getLeads:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to retrieve leads.",
+          leads: [],
+        });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// getContacts (admin) — contact form submissions
+// ---------------------------------------------------------------------------
+export const getContacts = onRequest(
+  {
+    cors: false,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [adminPassword],
+  },
+  async (req, res) => {
+    if (!handleCorsAndMethod(req, res, "POST")) return;
+
+    const clientIP = getClientIP(req);
+    if (!checkRateLimit(clientIP, 30, 60000)) {
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
+      return;
+    }
+
+    try {
+      const { password } = req.body;
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+
+      const snapshot = await db
+        .collection("contacts")
+        .orderBy("createdAt", "desc")
+        .get();
+      const contacts = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      res.json({ success: true, contacts });
+    } catch (error) {
+      console.error("Error in getContacts:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to retrieve contacts.",
+          contacts: [],
+        });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// getInquiries (admin) — buy meat / product inquiries
+// ---------------------------------------------------------------------------
+export const getInquiries = onRequest(
+  {
+    cors: false,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [adminPassword],
+  },
+  async (req, res) => {
+    if (!handleCorsAndMethod(req, res, "POST")) return;
+
+    const clientIP = getClientIP(req);
+    if (!checkRateLimit(clientIP, 30, 60000)) {
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
+      return;
+    }
+
+    try {
+      const { password } = req.body;
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+
+      const snapshot = await db
+        .collection("inquiries")
+        .orderBy("createdAt", "desc")
+        .get();
+      const inquiries = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      res.json({ success: true, inquiries });
+    } catch (error) {
+      console.error("Error in getInquiries:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to retrieve inquiries.",
+          inquiries: [],
+        });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// getBookImageUploadUrl (admin) — returns a signed URL for uploading a book cover
+// ---------------------------------------------------------------------------
+export const getBookImageUploadUrl = onRequest(
+  {
+    cors: false,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [adminPassword],
+  },
+  async (req, res) => {
+    if (!handleCorsAndMethod(req, res, "POST")) return;
+
+    const clientIP = getClientIP(req);
+    if (!checkRateLimit(clientIP, 10, 60000)) {
+      res
+        .status(429)
+        .json({
+          success: false,
+          error: "Too many requests. Please try again later.",
+        });
+      return;
+    }
+
+    try {
+      const { password, filename, contentType } = req.body;
+
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+
+      if (!filename || typeof filename !== "string") {
+        res.status(400).json({ success: false, error: "filename is required" });
+        return;
+      }
+
+      const allowedTypes = [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+      ];
+      const mimeType = allowedTypes.includes(contentType)
+        ? contentType
+        : "image/jpeg";
+
+      // Sanitize filename — keep extension, replace everything else
+      const ext =
+        filename
+          .split(".")
+          .pop()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "") || "jpg";
+      const safeName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const storagePath = `books/${safeName}`;
+
+      const bucket = storage.bucket(
+        "homecoming-ranch-1c2d9.firebasestorage.app",
+      );
+      const file = bucket.file(storagePath);
+
+      const [signedUrl] = await file.getSignedUrl({
+        action: "write",
+        expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+        contentType: mimeType,
+      });
+
+      const encodedPath = encodeURIComponent(storagePath);
+      const publicUrl = `https://firebasestorage.googleapis.com/v0/b/homecoming-ranch-1c2d9.firebasestorage.app/o/${encodedPath}?alt=media`;
+
+      res.json({ success: true, signedUrl, publicUrl, storagePath });
+    } catch (error) {
+      console.error("Error in getBookImageUploadUrl:", error);
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to generate upload URL." });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// getExperiences — public
+// ---------------------------------------------------------------------------
+export const getExperiences = onRequest(
+  { cors: false, memory: "256MiB", timeoutSeconds: 60 },
+  async (req, res) => {
+    if (!handleCorsAndMethod(req, res, "GET")) return;
+    const clientIP = getClientIP(req);
+    if (!checkRateLimit(clientIP, 30, 60000)) {
+      res.status(429).json({ success: false, error: "Too many requests." });
+      return;
+    }
+    try {
+      const snapshot = await db
+        .collection("experiences")
+        .where("active", "==", true)
+        .orderBy("order", "asc")
+        .get();
+      const experiences = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      res.json({ success: true, experiences });
+    } catch (error) {
+      console.error("Error in getExperiences:", error);
+      res
+        .status(500)
+        .json({
+          success: false,
+          error: "Failed to retrieve experiences.",
+          experiences: [],
+        });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// addExperience — admin
+// ---------------------------------------------------------------------------
+export const addExperience = onRequest(
+  {
+    cors: false,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [adminPassword],
+  },
+  async (req, res) => {
+    if (!handleCorsAndMethod(req, res, "POST")) return;
+    const clientIP = getClientIP(req);
+    if (!checkRateLimit(clientIP, 10, 60000)) {
+      res.status(429).json({ success: false, error: "Too many requests." });
+      return;
+    }
+    try {
+      const {
+        password,
+        title,
+        subtitle,
+        badge,
+        description,
+        includes,
+        pricing,
+        formFields,
+        imageUrl,
+        imageAlt,
+        order,
+      } = req.body;
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!title || typeof title !== "string" || title.trim() === "") {
+        res.status(400).json({ success: false, error: "Title is required" });
+        return;
+      }
+      const data = {
+        title: sanitizeString(title, 200),
+        subtitle: subtitle ? sanitizeString(subtitle, 200) : "",
+        badge: badge ? sanitizeString(badge, 100) : null,
+        description: description ? sanitizeString(description, 2000) : "",
+        includes: Array.isArray(includes)
+          ? includes.map((i) => sanitizeString(i, 200))
+          : [],
+        pricing: Array.isArray(pricing)
+          ? pricing.map((p) => ({
+              label: sanitizeString(p.label || "", 100),
+              price: sanitizeString(p.price || "", 50),
+            }))
+          : [],
+        formFields: {
+          adults: !!formFields?.adults,
+          children: !!formFields?.children,
+          groupSize: !!formFields?.groupSize,
+          school: !!formFields?.school,
+        },
+        imageUrl: imageUrl ? sanitizeString(imageUrl, 500) : "",
+        imageAlt: imageAlt ? sanitizeString(imageAlt, 300) : "",
+        order: typeof order === "number" ? order : 99,
+        active: true,
+        createdAt: FieldValue.serverTimestamp(),
+      };
+      const ref = await db.collection("experiences").add(data);
       res.json({
         success: true,
-        orders,
+        message: "Experience added",
+        experience: { id: ref.id, ...data },
       });
-
     } catch (error) {
-      console.error('Error in getOrders:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Failed to retrieve orders.',
-        orders: [],
-      });
+      console.error("Error in addExperience:", error);
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to add experience." });
     }
-  }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// updateExperience — admin
+// ---------------------------------------------------------------------------
+export const updateExperience = onRequest(
+  {
+    cors: false,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [adminPassword],
+  },
+  async (req, res) => {
+    if (!handleCorsAndMethod(req, res, "POST")) return;
+    const clientIP = getClientIP(req);
+    if (!checkRateLimit(clientIP, 10, 60000)) {
+      res.status(429).json({ success: false, error: "Too many requests." });
+      return;
+    }
+    try {
+      const {
+        password,
+        id,
+        title,
+        subtitle,
+        badge,
+        description,
+        includes,
+        pricing,
+        formFields,
+        imageUrl,
+        imageAlt,
+        order,
+      } = req.body;
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!id || typeof id !== "string") {
+        res
+          .status(400)
+          .json({ success: false, error: "Experience ID is required" });
+        return;
+      }
+      const ref = db.collection("experiences").doc(id);
+      const doc = await ref.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: "Experience not found" });
+        return;
+      }
+      const updates = { updatedAt: FieldValue.serverTimestamp() };
+      if (title !== undefined) updates.title = sanitizeString(title, 200);
+      if (subtitle !== undefined)
+        updates.subtitle = sanitizeString(subtitle, 200);
+      if (badge !== undefined)
+        updates.badge = badge ? sanitizeString(badge, 100) : null;
+      if (description !== undefined)
+        updates.description = sanitizeString(description, 2000);
+      if (includes !== undefined)
+        updates.includes = Array.isArray(includes)
+          ? includes.map((i) => sanitizeString(i, 200))
+          : [];
+      if (pricing !== undefined)
+        updates.pricing = Array.isArray(pricing)
+          ? pricing.map((p) => ({
+              label: sanitizeString(p.label || "", 100),
+              price: sanitizeString(p.price || "", 50),
+            }))
+          : [];
+      if (formFields !== undefined)
+        updates.formFields = {
+          adults: !!formFields?.adults,
+          children: !!formFields?.children,
+          groupSize: !!formFields?.groupSize,
+          school: !!formFields?.school,
+        };
+      if (imageUrl !== undefined)
+        updates.imageUrl = sanitizeString(imageUrl, 500);
+      if (imageAlt !== undefined)
+        updates.imageAlt = sanitizeString(imageAlt, 300);
+      if (order !== undefined)
+        updates.order = typeof order === "number" ? order : 99;
+      await ref.update(updates);
+      res.json({ success: true, message: "Experience updated" });
+    } catch (error) {
+      console.error("Error in updateExperience:", error);
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to update experience." });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// deleteExperience — admin (soft delete)
+// ---------------------------------------------------------------------------
+export const deleteExperience = onRequest(
+  {
+    cors: false,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [adminPassword],
+  },
+  async (req, res) => {
+    if (!handleCorsAndMethod(req, res, "POST")) return;
+    const clientIP = getClientIP(req);
+    if (!checkRateLimit(clientIP, 10, 60000)) {
+      res.status(429).json({ success: false, error: "Too many requests." });
+      return;
+    }
+    try {
+      const { password, id } = req.body;
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!id || typeof id !== "string") {
+        res
+          .status(400)
+          .json({ success: false, error: "Experience ID is required" });
+        return;
+      }
+      const ref = db.collection("experiences").doc(id);
+      const doc = await ref.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: "Experience not found" });
+        return;
+      }
+      await ref.update({
+        active: false,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      res.json({ success: true, message: "Experience deleted" });
+    } catch (error) {
+      console.error("Error in deleteExperience:", error);
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to delete experience." });
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// getExperienceImageUploadUrl — admin, signed upload URL for Storage
+// ---------------------------------------------------------------------------
+export const getExperienceImageUploadUrl = onRequest(
+  {
+    cors: false,
+    memory: "256MiB",
+    timeoutSeconds: 60,
+    secrets: [adminPassword],
+  },
+  async (req, res) => {
+    if (!handleCorsAndMethod(req, res, "POST")) return;
+    const clientIP = getClientIP(req);
+    if (!checkRateLimit(clientIP, 10, 60000)) {
+      res.status(429).json({ success: false, error: "Too many requests." });
+      return;
+    }
+    try {
+      const { password, filename, contentType } = req.body;
+      if (
+        !password ||
+        !validateAdminPassword(password, adminPassword.value())
+      ) {
+        res
+          .status(401)
+          .json({ success: false, error: "Invalid admin password" });
+        return;
+      }
+      if (!filename || typeof filename !== "string") {
+        res.status(400).json({ success: false, error: "filename is required" });
+        return;
+      }
+      const allowedTypes = [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+      ];
+      const mimeType = allowedTypes.includes(contentType)
+        ? contentType
+        : "image/jpeg";
+      const ext =
+        filename
+          .split(".")
+          .pop()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "") || "jpg";
+      const safeName = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const storagePath = `experiences/${safeName}`;
+      const bucket = storage.bucket(
+        "homecoming-ranch-1c2d9.firebasestorage.app",
+      );
+      const file = bucket.file(storagePath);
+      const [signedUrl] = await file.getSignedUrl({
+        action: "write",
+        expires: Date.now() + 15 * 60 * 1000,
+        contentType: mimeType,
+      });
+      const encodedPath = encodeURIComponent(storagePath);
+      const publicUrl = `https://firebasestorage.googleapis.com/v0/b/homecoming-ranch-1c2d9.firebasestorage.app/o/${encodedPath}?alt=media`;
+      res.json({ success: true, signedUrl, publicUrl, storagePath });
+    } catch (error) {
+      console.error("Error in getExperienceImageUploadUrl:", error);
+      res
+        .status(500)
+        .json({ success: false, error: "Failed to generate upload URL." });
+    }
+  },
 );

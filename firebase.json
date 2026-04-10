@@ -1,4 +1,10 @@
 {
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "functions": {
     "source": "functions",
     "codebase": "default",
@@ -80,6 +86,42 @@
       {
         "source": "/api/orders",
         "function": "getOrders"
+      },
+      {
+        "source": "/api/books/upload-url",
+        "function": "getBookImageUploadUrl"
+      },
+      {
+        "source": "/api/experiences",
+        "function": "getExperiences"
+      },
+      {
+        "source": "/api/experiences/add",
+        "function": "addExperience"
+      },
+      {
+        "source": "/api/experiences/update",
+        "function": "updateExperience"
+      },
+      {
+        "source": "/api/experiences/delete",
+        "function": "deleteExperience"
+      },
+      {
+        "source": "/api/experiences/upload-url",
+        "function": "getExperienceImageUploadUrl"
+      },
+      {
+        "source": "/api/admin/leads",
+        "function": "getLeads"
+      },
+      {
+        "source": "/api/admin/contacts",
+        "function": "getContacts"
+      },
+      {
+        "source": "/api/admin/inquiries",
+        "function": "getInquiries"
       },
       {
         "source": "**",

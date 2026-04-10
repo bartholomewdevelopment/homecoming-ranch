@@ -87,13 +87,21 @@ export function isValidPhone(phone) {
 export function isAllowedOrigin(origin, allowedOrigins) {
   if (!origin) return false;
 
+  // Normalize to just scheme+host in case a full Referer URL was passed
+  let normalized = origin;
+  try {
+    const url = new URL(origin);
+    normalized = `${url.protocol}//${url.host}`;
+  } catch (_) {
+    // already a bare origin, use as-is
+  }
+
   // In development, allow localhost
-  if (process.env.NODE_ENV === 'development' &&
-      origin.includes('localhost')) {
+  if (normalized.includes('localhost')) {
     return true;
   }
 
-  return allowedOrigins.some(allowed => origin === allowed);
+  return allowedOrigins.some(allowed => normalized === allowed);
 }
 
 /**
@@ -104,13 +112,20 @@ export function isAllowedOrigin(origin, allowedOrigins) {
  * @returns {boolean} - True if origin is allowed
  */
 export function applyCORS(req, res, allowedOrigins) {
-  const origin = req.headers.origin || req.headers.referer;
+  const raw = req.headers.origin || req.headers.referer;
 
-  if (!isAllowedOrigin(origin, allowedOrigins)) {
+  if (!isAllowedOrigin(raw, allowedOrigins)) {
     return false;
   }
 
-  res.set('Access-Control-Allow-Origin', origin);
+  // Always echo back just the origin (no path) so the header is valid
+  let originHeader = raw;
+  try {
+    const url = new URL(raw);
+    originHeader = `${url.protocol}//${url.host}`;
+  } catch (_) {}
+
+  res.set('Access-Control-Allow-Origin', originHeader);
   res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
   res.set('Access-Control-Max-Age', '3600');

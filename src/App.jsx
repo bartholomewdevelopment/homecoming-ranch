@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import ContactModal from "./ContactModal";
+import Footer from "./Footer";
 import { Link } from "react-router-dom";
 import "./App.css";
 import emailjs from "@emailjs/browser";
@@ -7,12 +8,289 @@ import logo from "./assets/logo.png";
 import heroImage from "./assets/herd.png";
 import cattleImage from "./assets/cattle.jpg";
 import steaks from "./assets/steaks.png";
-import eggs from "./assets/eggs.png";
+
+// ─── Shared image upload toggle ──────────────────────────────────────────────
+function ImageUploadField({ imageUrl, setImageUrl, setImageFile, imageMode, setImageMode, currentUrl }) {
+  return (
+    <>
+      <div className="image-input-toggle">
+        <label><input type="radio" value="url" checked={imageMode === "url"} onChange={() => setImageMode("url")} /> Image URL</label>
+        <label><input type="radio" value="file" checked={imageMode === "file"} onChange={() => setImageMode("file")} /> Upload File</label>
+      </div>
+      {imageMode === "url" ? (
+        <input type="url" placeholder="Image URL (optional)" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} />
+      ) : (
+        <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files[0] || null)} />
+      )}
+      {currentUrl && (
+        <img src={currentUrl} alt="Current" style={{ width: 80, height: 60, objectFit: "cover", borderRadius: 4, marginTop: 4 }} />
+      )}
+    </>
+  );
+}
+
+// ─── Experience form (shared for add + edit) ─────────────────────────────────
+function ExperienceForm({ initial, onSave, onCancel, uploading, uploadFn, adminPassword }) {
+  const blank = { title: "", subtitle: "", badge: "", description: "", includes: "", pricing: [{ label: "", price: "" }], formFields: { adults: false, children: false, groupSize: true, school: false }, imageUrl: "", imageAlt: "", order: 99 };
+  const src = initial || blank;
+  const BADGE_OPTIONS = [
+    { value: "", label: "— No badge —" },
+    { value: "⭐ Recommended", label: "⭐ Recommended" },
+    { value: "Most Popular", label: "Most Popular" },
+    { value: "Best Value", label: "Best Value" },
+    { value: "Family Favorite", label: "Family Favorite" },
+    { value: "Add-on or Standalone", label: "Add-on or Standalone" },
+    { value: "Educational", label: "Educational" },
+    { value: "New", label: "New" },
+    { value: "Seasonal", label: "Seasonal" },
+    { value: "Group Friendly", label: "Group Friendly" },
+    { value: "Private Only", label: "Private Only" },
+    { value: "__custom__", label: "Custom…" },
+  ];
+
+  const isPreset = (v) => v === "" || BADGE_OPTIONS.slice(1, -1).some(o => o.value === v);
+  const initialBadgeVal = src.badge || "";
+  const initialSelect = isPreset(initialBadgeVal) ? initialBadgeVal : "__custom__";
+
+  const [title, setTitle] = useState(src.title);
+  const [subtitle, setSubtitle] = useState(src.subtitle || "");
+  const [badgeSelect, setBadgeSelect] = useState(initialSelect);
+  const [badgeCustom, setBadgeCustom] = useState(initialSelect === "__custom__" ? initialBadgeVal : "");
+  const badge = badgeSelect === "__custom__" ? badgeCustom : badgeSelect;
+  const [description, setDescription] = useState(src.description || "");
+  const [includes, setIncludes] = useState(Array.isArray(src.includes) ? src.includes.join("\n") : src.includes || "");
+  const [pricing, setPricing] = useState(src.pricing?.length ? src.pricing : [{ label: "", price: "" }]);
+  const [formFields, setFormFields] = useState(src.formFields || blank.formFields);
+  const [imageUrl, setImageUrl] = useState(src.imageUrl || "");
+  const [imageAlt, setImageAlt] = useState(src.imageAlt || "");
+  const [imageFile, setImageFile] = useState(null);
+  const [imageMode, setImageMode] = useState("url");
+  const [order, setOrder] = useState(src.order ?? 99);
+
+  const toggleFF = (key) => setFormFields(f => ({ ...f, [key]: !f[key] }));
+  const updatePricing = (i, field, val) => setPricing(p => p.map((row, idx) => idx === i ? { ...row, [field]: val } : row));
+  const addPricingRow = () => setPricing(p => [...p, { label: "", price: "" }]);
+  const removePricingRow = (i) => setPricing(p => p.filter((_, idx) => idx !== i));
+
+  const handleSave = async () => {
+    let finalImageUrl = imageUrl;
+    if (imageMode === "file" && imageFile) {
+      finalImageUrl = await uploadFn(imageFile, adminPassword);
+    }
+    onSave({
+      title, subtitle, badge: badge || null,
+      description,
+      includes: includes.split("\n").map(s => s.trim()).filter(Boolean),
+      pricing: pricing.filter(r => r.label || r.price),
+      formFields,
+      imageUrl: finalImageUrl,
+      imageAlt,
+      order: Number(order) || 99,
+    });
+  };
+
+  return (
+    <div className="exp-admin-form">
+
+      <div className="exp-admin-section">
+        <h4 className="exp-admin-section-title">Basic Info</h4>
+        <div className="exp-admin-field">
+          <label className="exp-admin-label">Title <span className="exp-admin-required">*</span></label>
+          <input type="text" placeholder="e.g. Ranch Tour & Cattle Experience" value={title} onChange={e => setTitle(e.target.value)} />
+        </div>
+        <div className="exp-admin-field">
+          <label className="exp-admin-label">Subtitle</label>
+          <input type="text" placeholder="e.g. Guided · 60–75 min" value={subtitle} onChange={e => setSubtitle(e.target.value)} />
+        </div>
+        <div className="exp-admin-field">
+          <label className="exp-admin-label">Badge <span className="exp-admin-hint">(optional)</span></label>
+          <select value={badgeSelect} onChange={e => setBadgeSelect(e.target.value)}>
+            {BADGE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          {badgeSelect === "__custom__" && (
+            <input type="text" placeholder="Type custom badge text…" value={badgeCustom} onChange={e => setBadgeCustom(e.target.value)} style={{ marginTop: "0.5rem" }} />
+          )}
+        </div>
+      </div>
+
+      <div className="exp-admin-section">
+        <h4 className="exp-admin-section-title">Description &amp; Includes</h4>
+        <div className="exp-admin-field">
+          <label className="exp-admin-label">Description</label>
+          <textarea placeholder="Describe this experience for guests..." rows={3} value={description} onChange={e => setDescription(e.target.value)} />
+        </div>
+        <div className="exp-admin-field">
+          <label className="exp-admin-label">What's Included <span className="exp-admin-hint">(one item per line)</span></label>
+          <textarea placeholder={"Guided pasture walk\nCattle meet-and-greet\nRanch history & story"} rows={4} value={includes} onChange={e => setIncludes(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="exp-admin-section">
+        <h4 className="exp-admin-section-title">Pricing</h4>
+        {pricing.map((row, i) => (
+          <div key={i} className="exp-admin-pricing-row">
+            <div className="exp-admin-field">
+              {i === 0 && <label className="exp-admin-label">Label</label>}
+              <input type="text" placeholder="e.g. Adult" value={row.label} onChange={e => updatePricing(i, "label", e.target.value)} />
+            </div>
+            <div className="exp-admin-field">
+              {i === 0 && <label className="exp-admin-label">Price</label>}
+              <input type="text" placeholder="e.g. $18 / person" value={row.price} onChange={e => updatePricing(i, "price", e.target.value)} />
+            </div>
+            <button
+              type="button"
+              className="exp-admin-remove-row"
+              onClick={() => removePricingRow(i)}
+              aria-label="Remove pricing row"
+              style={{ visibility: pricing.length > 1 ? "visible" : "hidden" }}
+            >×</button>
+          </div>
+        ))}
+        <button type="button" className="exp-admin-add-row-btn" onClick={addPricingRow}>+ Add Pricing Row</button>
+      </div>
+
+      <div className="exp-admin-section">
+        <h4 className="exp-admin-section-title">Booking Form Fields</h4>
+        <p className="exp-admin-section-desc">Select which fields appear in the sign-up form for this experience.</p>
+        <div className="exp-admin-checkboxes">
+          {[
+            { key: "adults", label: "# of Adults" },
+            { key: "children", label: "# of Children" },
+            { key: "groupSize", label: "Group Size" },
+            { key: "school", label: "School / Institution" },
+          ].map(({ key, label }) => (
+            <label key={key} className="exp-admin-checkbox-label">
+              <input type="checkbox" checked={!!formFields[key]} onChange={() => toggleFF(key)} />
+              {label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="exp-admin-section">
+        <h4 className="exp-admin-section-title">Image &amp; Display</h4>
+        <div className="exp-admin-field">
+          <label className="exp-admin-label">Display Order <span className="exp-admin-hint">(1 = first)</span></label>
+          <input type="number" placeholder="99" value={order} onChange={e => setOrder(e.target.value)} min={1} style={{ maxWidth: 120 }} />
+        </div>
+        <div className="exp-admin-field">
+          <label className="exp-admin-label">Image Alt Text</label>
+          <input type="text" placeholder="Describe the image for accessibility" value={imageAlt} onChange={e => setImageAlt(e.target.value)} />
+        </div>
+        <div className="exp-admin-field">
+          <label className="exp-admin-label">Image</label>
+          <ImageUploadField imageUrl={imageUrl} setImageUrl={setImageUrl} setImageFile={setImageFile} imageMode={imageMode} setImageMode={setImageMode} currentUrl={src.imageUrl} />
+        </div>
+      </div>
+
+      <div className="exp-admin-form-actions">
+        <button className="cta-btn primary-btn" onClick={handleSave} disabled={uploading || !title.trim()}>
+          {uploading ? "Saving..." : (initial ? "Save Changes" : "Add Experience")}
+        </button>
+        {onCancel && <button className="cta-btn outline-btn" onClick={onCancel} disabled={uploading}>Cancel</button>}
+      </div>
+    </div>
+  );
+}
+
+function EditBookForm({ book, onSave, onCancel, uploadBookImageFile }) {
+  const [title, setTitle] = useState(book.title);
+  const [author, setAuthor] = useState(book.author || "");
+  const [externalUrl, setExternalUrl] = useState(book.externalUrl);
+  const [imageMode, setImageMode] = useState("url");
+  const [imageUrl, setImageUrl] = useState(book.imageUrl || "");
+  const [imageFile, setImageFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleSave = async () => {
+    try {
+      setUploading(true);
+      let finalImageUrl = imageUrl;
+      if (imageMode === "file" && imageFile) {
+        finalImageUrl = await uploadBookImageFile(imageFile);
+      }
+      onSave({ title, author, externalUrl, imageUrl: finalImageUrl });
+    } catch {
+      alert("Image upload failed. Please try again.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="edit-product-form">
+      <input
+        type="text"
+        placeholder="Title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
+      <input
+        type="text"
+        placeholder="Author"
+        value={author}
+        onChange={(e) => setAuthor(e.target.value)}
+      />
+      <input
+        type="url"
+        placeholder="External URL"
+        value={externalUrl}
+        onChange={(e) => setExternalUrl(e.target.value)}
+      />
+      <div className="image-input-toggle">
+        <label>
+          <input
+            type="radio"
+            value="url"
+            checked={imageMode === "url"}
+            onChange={() => setImageMode("url")}
+          />{" "}
+          Image URL
+        </label>
+        <label>
+          <input
+            type="radio"
+            value="file"
+            checked={imageMode === "file"}
+            onChange={() => setImageMode("file")}
+          />{" "}
+          Upload File
+        </label>
+      </div>
+      {imageMode === "url" ? (
+        <input
+          type="url"
+          placeholder="Cover Image URL (optional)"
+          value={imageUrl}
+          onChange={(e) => setImageUrl(e.target.value)}
+        />
+      ) : (
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => setImageFile(e.target.files[0] || null)}
+        />
+      )}
+      {book.imageUrl && (
+        <img
+          src={book.imageUrl}
+          alt="Current cover"
+          style={{ width: 60, height: 80, objectFit: "cover", borderRadius: 4 }}
+        />
+      )}
+      <button className="cta-btn primary-btn" onClick={handleSave} disabled={uploading}>
+        {uploading ? "Uploading..." : "Save"}
+      </button>
+      <button className="cta-btn outline-btn" onClick={onCancel} disabled={uploading}>
+        Cancel
+      </button>
+    </div>
+  );
+}
 
 function App() {
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [isBuyMeatModalOpen, setIsBuyMeatModalOpen] = useState(false);
-  const [isEventsModalOpen, setIsEventsModalOpen] = useState(false);
   const [isLearnMoreExpanded, setIsLearnMoreExpanded] = useState(false);
   const [isLivestockModalOpen, setIsLivestockModalOpen] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -38,6 +316,9 @@ function App() {
   const [products, setProducts] = useState([]);
   const [books, setBooks] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [leads, setLeads] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [inquiries, setInquiries] = useState([]);
   const [newProduct, setNewProduct] = useState({
     category: "meat",
     name: "",
@@ -53,6 +334,15 @@ function App() {
     externalUrl: "",
     imageUrl: "",
   });
+  const [newBookImageFile, setNewBookImageFile] = useState(null);
+  const [newBookImageMode, setNewBookImageMode] = useState("url"); // "url" | "file"
+  const [bookImageUploading, setBookImageUploading] = useState(false);
+
+  // Experiences admin state
+  const [adminExperiences, setAdminExperiences] = useState([]);
+  const [editingExperience, setEditingExperience] = useState(null); // experience object being edited
+  const [expUploading, setExpUploading] = useState(false);
+  const expFormRef = useRef(null);
   const [editingProduct, setEditingProduct] = useState(null);
   const [editingBook, setEditingBook] = useState(null);
   const [isEventSignupModalOpen, setIsEventSignupModalOpen] = useState(false);
@@ -100,11 +390,6 @@ function App() {
 
     fetchProductsForStock();
 
-    // Admin access via URL hash — navigate to /#admin-access to open panel
-    if (window.location.hash === "#admin-access") {
-      setIsAdminModalOpen(true);
-      window.history.replaceState(null, "", window.location.pathname);
-    }
   }, []);
 
   useEffect(() => {
@@ -544,6 +829,164 @@ function App() {
     }
   };
 
+  const fetchLeads = async () => {
+    try {
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/getLeads"
+        : "/api/admin/leads";
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      const data = await response.json();
+      if (data.success && data.leads) setLeads(data.leads);
+    } catch (error) {
+      console.error("Failed to fetch leads:", error);
+    }
+  };
+
+  const fetchContacts = async () => {
+    try {
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/getContacts"
+        : "/api/admin/contacts";
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      const data = await response.json();
+      if (data.success && data.contacts) setContacts(data.contacts);
+    } catch (error) {
+      console.error("Failed to fetch contacts:", error);
+    }
+  };
+
+  const fetchInquiries = async () => {
+    try {
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/getInquiries"
+        : "/api/admin/inquiries";
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      const data = await response.json();
+      if (data.success && data.inquiries) setInquiries(data.inquiries);
+    } catch (error) {
+      console.error("Failed to fetch inquiries:", error);
+    }
+  };
+
+  // ── Experience admin handlers ─────────────────────────────────────────────
+
+  const fetchAdminExperiences = async () => {
+    try {
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/getExperiences"
+        : "/api/experiences";
+      const res = await fetch(apiUrl);
+      const data = await res.json();
+      if (data.success) setAdminExperiences(data.experiences || []);
+    } catch (err) {
+      console.error("Failed to fetch experiences:", err);
+    }
+  };
+
+  const uploadExperienceImage = async (file, pwd) => {
+    const apiUrl = import.meta.env.DEV
+      ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/getExperienceImageUploadUrl"
+      : "/api/experiences/upload-url";
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: pwd, filename: file.name, contentType: file.type }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Upload URL failed");
+    await fetch(data.signedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+    return data.publicUrl;
+  };
+
+  const handleAddExperience = async (fields) => {
+    setExpUploading(true);
+    try {
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/addExperience"
+        : "/api/experiences/add";
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...fields, password: adminPassword }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdminExperiences(prev => [...prev, data.experience].sort((a, b) => a.order - b.order));
+      } else {
+        alert(`Failed: ${data.error}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to add experience.");
+    } finally {
+      setExpUploading(false);
+    }
+  };
+
+  const handleUpdateExperience = async (id, fields) => {
+    setExpUploading(true);
+    try {
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/updateExperience"
+        : "/api/experiences/update";
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...fields, password: adminPassword }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdminExperiences(prev =>
+          prev.map(e => e.id === id ? { ...e, ...fields } : e).sort((a, b) => a.order - b.order)
+        );
+        setEditingExperience(null);
+      } else {
+        alert(`Failed: ${data.error}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update experience.");
+    } finally {
+      setExpUploading(false);
+    }
+  };
+
+  const handleDeleteExperience = async (id) => {
+    if (!confirm("Delete this experience?")) return;
+    try {
+      const apiUrl = import.meta.env.DEV
+        ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/deleteExperience"
+        : "/api/experiences/delete";
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, password: adminPassword }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAdminExperiences(prev => prev.filter(e => e.id !== id));
+        if (editingExperience?.id === id) setEditingExperience(null);
+      } else {
+        alert(`Failed: ${data.error}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete experience.");
+    }
+  };
+
   const handleAddProduct = async (e) => {
     e.preventDefault();
     if (!isAdminAuthenticated) {
@@ -658,6 +1101,32 @@ function App() {
     }
   };
 
+  const uploadBookImageFile = async (file) => {
+    const uploadUrlApi = import.meta.env.DEV
+      ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/getBookImageUploadUrl"
+      : "/api/books/upload-url";
+
+    const urlRes = await fetch(uploadUrlApi, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        password: adminPassword,
+        filename: file.name,
+        contentType: file.type,
+      }),
+    });
+    const urlData = await urlRes.json();
+    if (!urlData.success) throw new Error(urlData.error || "Failed to get upload URL");
+
+    await fetch(urlData.signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type },
+      body: file,
+    });
+
+    return urlData.publicUrl;
+  };
+
   const handleAddBook = async (e) => {
     e.preventDefault();
     if (!isAdminAuthenticated) {
@@ -666,6 +1135,13 @@ function App() {
     }
 
     try {
+      setBookImageUploading(true);
+      let imageUrl = newBook.imageUrl;
+
+      if (newBookImageMode === "file" && newBookImageFile) {
+        imageUrl = await uploadBookImageFile(newBookImageFile);
+      }
+
       const apiUrl = import.meta.env.DEV
         ? "http://localhost:5001/homecoming-ranch-1c2d9/us-central1/addBook"
         : "/api/books/add";
@@ -673,10 +1149,7 @@ function App() {
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...newBook,
-          password: adminPassword,
-        }),
+        body: JSON.stringify({ ...newBook, imageUrl, password: adminPassword }),
       });
 
       const data = await response.json();
@@ -684,12 +1157,16 @@ function App() {
       if (data.success && data.book) {
         setBooks([...books, data.book]);
         setNewBook({ title: "", author: "", externalUrl: "", imageUrl: "" });
+        setNewBookImageFile(null);
+        setNewBookImageMode("url");
       } else {
         alert(`Failed to add book: ${data.error || "Unknown error"}`);
       }
     } catch (error) {
       console.error("Error adding book:", error);
       alert("Failed to add book. Please try again.");
+    } finally {
+      setBookImageUploading(false);
     }
   };
 
@@ -716,8 +1193,8 @@ function App() {
 
       const data = await response.json();
 
-      if (data.success && data.book) {
-        setBooks(books.map((b) => (b.id === id ? data.book : b)));
+      if (data.success) {
+        setBooks(books.map((b) => (b.id === id ? { ...b, ...updates } : b)));
         setEditingBook(null);
       } else {
         alert(`Failed to update book: ${data.error || "Unknown error"}`);
@@ -762,11 +1239,6 @@ function App() {
     }
   };
 
-  const openEventSignupModal = (event) => {
-    setSelectedEvent(event);
-    setEventSignupFormStatus(null);
-    setIsEventSignupModalOpen(true);
-  };
 
   const closeEventSignupModal = () => {
     setIsEventSignupModalOpen(false);
@@ -854,23 +1326,23 @@ function App() {
             Healthier Planet &amp; Community
           </h2>
           <p className="animate-fade-in">
-            Grass-fed beef & goat meat, sustainably farmed in Hocking Hills,
-            Ohio.
+            Farm-to-table grass-fed beef & pasture-raised goat, grown on 98
+            regenerative acres in Hocking Hills, Ohio.
           </p>
           <div className="cta-buttons animate-slide-up">
             <button
               className="cta-btn primary-btn"
               onClick={() => setIsBuyMeatModalOpen(true)}
             >
-              Buy Meat
+              Join Waitlist
             </button>
             <div className="cta-secondary-group">
-              <button
+              <Link
+                to="/experiences"
                 className="cta-btn outline-btn secondary-btn"
-                onClick={() => setIsEventsModalOpen(true)}
               >
                 Schedule a Tour
-              </button>
+              </Link>
               <button
                 className="cta-btn outline-btn secondary-btn"
                 onClick={() => setIsRecipeModalOpen(true)}
@@ -964,7 +1436,7 @@ function App() {
       >
         <h2>What is Regenerative Ranching?</h2>
         <p className="regen-subtitle">
-          Beyond sustainable — restoring the land while raising healthy animals.
+          Beyond sustainable — restoring the Hocking Hills land while raising healthy, farm-fresh animals.
         </p>
         <div className="regen-grid">
           <div className="regen-card">
@@ -1017,7 +1489,7 @@ function App() {
             <h3 className="regen-card-title">Biodiversity</h3>
             <p className="regen-card-desc">
               Natural grazing cycles support a rich ecosystem of plants,
-              insects, and wildlife across our 98 Appalachian acres.
+              insects, and wildlife across our 98 Hocking Hills acres.
             </p>
           </div>
           <div className="regen-card">
@@ -1068,7 +1540,7 @@ function App() {
           </div>
         </div>
         <p className="regen-tagline">
-          At Homecoming Ranch, we rebuild ecosystems.
+          At Homecoming Ranch, we rebuild ecosystems — and bring farm-to-table, grass-fed beef straight from our Hocking Hills pastures to your family.
         </p>
         <button
           className="regen-learn-trigger"
@@ -1098,12 +1570,12 @@ function App() {
               wildlife.
             </p>
             <p>
-              Our practices result in healthier livestock—cows, goats, and
-              more—that produce meat with higher levels of Omega-3 fatty acids,
-              vitamins, and minerals. By choosing regenerative products, you're
-              not just eating better; you're supporting a system that heals the
-              planet. Learn more about our mission to restore 98 acres of
-              Hocking Hills Ohio into a model of sustainable agriculture!
+              Our practices result in healthier livestock—Highland beef, Dexter beef, goats, and
+              more—that produce farm-fresh meat with higher levels of Omega-3 fatty acids,
+              vitamins, and minerals than conventionally raised alternatives. By choosing our
+              farm-to-table, grass-fed beef from Hocking Hills, Ohio, you're not just eating
+              better; you're supporting a system that heals the planet. Join our waitlist for
+              fresh, locally raised beef direct from our Hocking Hills pastures to your table.
             </p>
             <div className="video-container">
               <iframe
@@ -1121,62 +1593,79 @@ function App() {
         )}
       </section>
 
+      {/* Restaurant Testimonial + B2B Section */}
+      <section className="restaurant-section animate-section" aria-label="Restaurant partners and wholesale beef">
+        <div className="restaurant-section-inner">
+
+          {/* Testimonial */}
+          <div className="restaurant-testimonial-wrap">
+            <span className="section-badge-dark">Trusted by Local Restaurants</span>
+            <h2 className="restaurant-heading">
+              Serving Hocking Hills' Finest Tables
+            </h2>
+            <p className="restaurant-subtext">
+              Homecoming Ranch Highland and Dexter cattle beef is sourced by restaurants
+              across the Hocking Hills region of Ohio — celebrated for its rich flavor,
+              clean genetics, and regenerative ranching practices.
+            </p>
+            <figure className="testimonial-card">
+              <svg className="testimonial-quote-icon" xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4.583 17.321C3.553 16.227 3 15 3 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 0 1-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179zm10 0C13.553 16.227 13 15 13 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 0 1-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179z"/></svg>
+              <blockquote className="testimonial-quote">
+                "We've been sourcing Highland beef from Homecoming Ranch for over a year now.
+                The quality is unlike anything else we've found — our guests ask about it every single time
+                it's on the menu. Knowing it comes from a regenerative ranch just a few miles away makes
+                it even better."
+              </blockquote>
+              <figcaption className="testimonial-attribution">
+                <strong>Lake Hope Lodge</strong>
+                <span>Hocking Hills, Ohio</span>
+              </figcaption>
+            </figure>
+          </div>
+
+          {/* B2B CTA */}
+          <div className="restaurant-cta-wrap">
+            <div className="restaurant-cta-card">
+              <span className="restaurant-cta-badge">For Restaurants &amp; Chefs</span>
+              <h3 className="restaurant-cta-heading">Interested in Sourcing Our Beef?</h3>
+              <p className="restaurant-cta-text">
+                We work directly with restaurants, butcher shops, and food service providers
+                throughout Ohio. Our 100% grass-fed Highland and Dexter cattle beef is available
+                for wholesale inquiry — no middlemen, straight from the ranch.
+              </p>
+              <ul className="restaurant-cta-list">
+                <li>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                  Highland &amp; Dexter grass-fed beef
+                </li>
+                <li>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                  Regenerative, pasture-raised — Ohio sourced
+                </li>
+                <li>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                  Bulk &amp; seasonal availability
+                </li>
+                <li>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                  Direct farm-to-table relationship
+                </li>
+              </ul>
+              <a
+                href="/store#wholesale"
+                className="cta-btn primary-btn restaurant-cta-btn"
+                onClick={(e) => { e.preventDefault(); window.location.href = '/store'; }}
+              >
+                Inquire About Wholesale
+              </a>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
       {/* Footer */}
-      <footer className="footer">
-        <img src={logo} alt="Homecoming Ranch Logo" className="logo" />
-        <p>© 2025 Homecoming Ranch.</p>
-        <p>
-          Website Built by{" "}
-          <a
-            href="https://bartholomewdevelopment.com"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Bartholomew Development LLC
-          </a>{" "}
-          |{" "}
-          <a href="mailto:inquiries@bartholomewdevelopment.com">
-            inquiries@bartholomewdevelopment.com
-          </a>
-        </p>
-        <a
-          href="https://instagram.com/homecoming_ranch"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <span className="instagram-icon">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-              style={{
-                display: "inline",
-                verticalAlign: "middle",
-                marginRight: "0.4em",
-              }}
-            >
-              <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
-              <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-              <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
-            </svg>
-            Follow Homecoming Ranch's journey
-          </span>
-        </a>
-        <button
-          className="cta-btn outline-btn admin-panel-btn"
-          onClick={() => setIsAdminModalOpen(true)}
-          style={{ display: "none" }}
-        >
-          Admin Panel
-        </button>
-      </footer>
+      <Footer onAdminClick={() => setIsAdminModalOpen(true)} />
 
       {/* Modals */}
       {isBuyMeatModalOpen && (
@@ -1250,61 +1739,6 @@ function App() {
         </div>
       )}
 
-      {isEventsModalOpen && (
-        <div
-          className="modal-overlay"
-          onClick={() => closeModal(setIsEventsModalOpen)}
-        >
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <img src={eggs} alt="Events" className="modal-image" />
-            <h2>Upcoming Events & Ranch Tours</h2>
-            <p>
-              Join us for educational workshops, guided ranch tours, and
-              hands-on farm activities!
-            </p>
-            <div className="events-list">
-              {events.length > 0 ? (
-                events.map((event) => (
-                  <div key={event.id} className="event-item public-event">
-                    <div className="event-details">
-                      <h3>{event.name}</h3>
-                      <p>
-                        <strong>Date:</strong> {event.date}
-                      </p>
-                      <p>
-                        <strong>Time:</strong> {event.time}
-                      </p>
-                      <p>
-                        <strong>Type:</strong> {event.type}
-                      </p>
-                      <button
-                        className="cta-btn primary-btn event-signup-btn"
-                        onClick={() => openEventSignupModal(event)}
-                      >
-                        Sign Up
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="no-events">2026 Events Coming Soon</p>
-              )}
-            </div>
-            <button
-              className="modal-close"
-              onClick={() => closeModal(setIsEventsModalOpen)}
-            >
-              ×
-            </button>
-            <button
-              className="cta-btn outline-btn modal-close-bottom"
-              onClick={() => closeModal(setIsEventsModalOpen)}
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
 
       {isLivestockModalOpen && selectedLivestock && (
         <div
@@ -1420,6 +1854,42 @@ function App() {
                     }}
                   >
                     Orders
+                  </button>
+                  <button
+                    className={`admin-tab ${adminActiveTab === "waitlist" ? "active" : ""}`}
+                    onClick={() => {
+                      setAdminActiveTab("waitlist");
+                      fetchLeads();
+                    }}
+                  >
+                    Waitlist
+                  </button>
+                  <button
+                    className={`admin-tab ${adminActiveTab === "contacts" ? "active" : ""}`}
+                    onClick={() => {
+                      setAdminActiveTab("contacts");
+                      fetchContacts();
+                    }}
+                  >
+                    Contacts
+                  </button>
+                  <button
+                    className={`admin-tab ${adminActiveTab === "inquiries" ? "active" : ""}`}
+                    onClick={() => {
+                      setAdminActiveTab("inquiries");
+                      fetchInquiries();
+                    }}
+                  >
+                    Inquiries
+                  </button>
+                  <button
+                    className={`admin-tab ${adminActiveTab === "experiences" ? "active" : ""}`}
+                    onClick={() => {
+                      setAdminActiveTab("experiences");
+                      fetchAdminExperiences();
+                    }}
+                  >
+                    Experiences
                   </button>
                 </div>
 
@@ -1896,23 +2366,56 @@ function App() {
                           placeholder="External Link (Amazon, Publisher, etc.)"
                           value={newBook.externalUrl}
                           onChange={(e) =>
-                            setNewBook({
-                              ...newBook,
-                              externalUrl: e.target.value,
-                            })
+                            setNewBook({ ...newBook, externalUrl: e.target.value })
                           }
                           required
                         />
-                        <input
-                          type="text"
-                          placeholder="Cover Image URL"
-                          value={newBook.imageUrl}
-                          onChange={(e) =>
-                            setNewBook({ ...newBook, imageUrl: e.target.value })
-                          }
-                        />
-                        <button type="submit" className="cta-btn primary-btn">
-                          Add Book
+                        <div className="image-input-toggle">
+                          <label>
+                            <input
+                              type="radio"
+                              name="newBookImageMode"
+                              value="url"
+                              checked={newBookImageMode === "url"}
+                              onChange={() => setNewBookImageMode("url")}
+                            />{" "}
+                            Image URL
+                          </label>
+                          <label>
+                            <input
+                              type="radio"
+                              name="newBookImageMode"
+                              value="file"
+                              checked={newBookImageMode === "file"}
+                              onChange={() => setNewBookImageMode("file")}
+                            />{" "}
+                            Upload File
+                          </label>
+                        </div>
+                        {newBookImageMode === "url" ? (
+                          <input
+                            type="url"
+                            placeholder="Cover Image URL (optional)"
+                            value={newBook.imageUrl}
+                            onChange={(e) =>
+                              setNewBook({ ...newBook, imageUrl: e.target.value })
+                            }
+                          />
+                        ) : (
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) =>
+                              setNewBookImageFile(e.target.files[0] || null)
+                            }
+                          />
+                        )}
+                        <button
+                          type="submit"
+                          className="cta-btn primary-btn"
+                          disabled={bookImageUploading}
+                        >
+                          {bookImageUploading ? "Uploading..." : "Add Book"}
                         </button>
                       </form>
                     </div>
@@ -1927,44 +2430,13 @@ function App() {
                               className="event-item admin-event-item"
                             >
                               {editingBook === book.id ? (
-                                <div className="edit-product-form">
-                                  <input
-                                    type="text"
-                                    placeholder="Title"
-                                    defaultValue={book.title}
-                                    id={`title-${book.id}`}
-                                  />
-                                  <input
-                                    type="url"
-                                    placeholder="External URL"
-                                    defaultValue={book.externalUrl}
-                                    id={`url-${book.id}`}
-                                  />
-                                  <button
-                                    className="cta-btn primary-btn"
-                                    onClick={() => {
-                                      const title = document.getElementById(
-                                        `title-${book.id}`,
-                                      ).value;
-                                      const externalUrl =
-                                        document.getElementById(
-                                          `url-${book.id}`,
-                                        ).value;
-                                      handleUpdateBook(book.id, {
-                                        title,
-                                        externalUrl,
-                                      });
-                                    }}
-                                  >
-                                    Save
-                                  </button>
-                                  <button
-                                    className="cta-btn outline-btn"
-                                    onClick={() => setEditingBook(null)}
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
+                                <EditBookForm
+                                  book={book}
+                                  adminPassword={adminPassword}
+                                  onSave={(updates) => handleUpdateBook(book.id, updates)}
+                                  onCancel={() => setEditingBook(null)}
+                                  uploadBookImageFile={uploadBookImageFile}
+                                />
                               ) : (
                                 <>
                                   <div className="event-info">
@@ -2049,6 +2521,152 @@ function App() {
                       )}
                     </div>
                   </div>
+                )}
+
+                {/* Waitlist Tab */}
+                {adminActiveTab === "waitlist" && (
+                  <div className="admin-section">
+                    <h3>Waitlist / Recipe Signups ({leads.length})</h3>
+                    <div className="events-list admin-events-list">
+                      {leads.length > 0 ? (
+                        leads.map((lead) => (
+                          <div key={lead.id} className="order-card">
+                            <div className="order-card-header">
+                              <strong>{lead.firstName}</strong>
+                              <span>{lead.date} {lead.time}</span>
+                            </div>
+                            <div className="order-card-body">
+                              <p><strong>Email:</strong> {lead.email}</p>
+                              <p><strong>Newsletter:</strong> {lead.subscribedToNewsletter ? "Yes" : "No"}</p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="no-events">No signups yet.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Contacts Tab */}
+                {adminActiveTab === "contacts" && (
+                  <div className="admin-section">
+                    <h3>Contact Form Submissions ({contacts.length})</h3>
+                    <div className="events-list admin-events-list">
+                      {contacts.length > 0 ? (
+                        contacts.map((contact) => (
+                          <div key={contact.id} className="order-card">
+                            <div className="order-card-header">
+                              <strong>{contact.firstName} {contact.lastName}</strong>
+                              <span>{contact.date} {contact.time}</span>
+                            </div>
+                            <div className="order-card-body">
+                              <p><strong>Email:</strong> {contact.email}</p>
+                              <p><strong>Phone:</strong> {contact.phone}</p>
+                              {contact.referralSource && <p><strong>Heard from:</strong> {contact.referralSource}</p>}
+                              {contact.comments && <p><strong>Message:</strong> {contact.comments}</p>}
+                              <p><strong>Newsletter:</strong> {contact.subscribedToNewsletter ? "Yes" : "No"}</p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="no-events">No contact submissions yet.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Inquiries Tab */}
+                {adminActiveTab === "inquiries" && (
+                  <div className="admin-section">
+                    <h3>Meat / Product Inquiries ({inquiries.length})</h3>
+                    <div className="events-list admin-events-list">
+                      {inquiries.length > 0 ? (
+                        inquiries.map((inquiry) => (
+                          <div key={inquiry.id} className="order-card">
+                            <div className="order-card-header">
+                              <strong>{inquiry.firstName} {inquiry.lastName}</strong>
+                              <span>{inquiry.date} {inquiry.time}</span>
+                            </div>
+                            <div className="order-card-body">
+                              <p><strong>Email:</strong> {inquiry.email}</p>
+                              <p><strong>Phone:</strong> {inquiry.phone}</p>
+                              {inquiry.product && <p><strong>Product:</strong> {inquiry.product}</p>}
+                              {inquiry.referralSource && <p><strong>Heard from:</strong> {inquiry.referralSource}</p>}
+                              {inquiry.comments && <p><strong>Message:</strong> {inquiry.comments}</p>}
+                              <p><strong>Newsletter:</strong> {inquiry.subscribedToNewsletter ? "Yes" : "No"}</p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="no-events">No inquiries yet.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Experiences Tab */}
+                {adminActiveTab === "experiences" && (
+                  <>
+                    <div className="admin-section" ref={expFormRef}>
+                      <h3>{editingExperience ? `Editing: ${editingExperience.title}` : "Add New Experience"}</h3>
+                      <ExperienceForm
+                        key={editingExperience?.id ?? "new"}
+                        initial={editingExperience}
+                        uploading={expUploading}
+                        adminPassword={adminPassword}
+                        uploadFn={uploadExperienceImage}
+                        onSave={(fields) => {
+                          if (editingExperience) {
+                            handleUpdateExperience(editingExperience.id, fields);
+                          } else {
+                            handleAddExperience(fields);
+                          }
+                        }}
+                        onCancel={editingExperience ? () => setEditingExperience(null) : null}
+                      />
+                    </div>
+
+                    <div className="admin-section">
+                      <h3>Current Experiences ({adminExperiences.length})</h3>
+                      <div className="events-list admin-events-list">
+                        {adminExperiences.length > 0 ? (
+                          adminExperiences.map((exp) => (
+                            <div key={exp.id} className="event-item admin-event-item" style={{ alignItems: "flex-start", gap: "0.75rem" }}>
+                              {exp.imageUrl && (
+                                <img
+                                  src={exp.imageUrl}
+                                  alt={exp.imageAlt || exp.title}
+                                  style={{ width: 72, height: 54, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
+                                />
+                              )}
+                              <div className="event-info" style={{ flex: 1 }}>
+                                <strong>{exp.order}. {exp.title}</strong>
+                                <span>{exp.subtitle}</span>
+                                {exp.badge && <span style={{ fontSize: "0.75rem", color: "#666" }}>{exp.badge}</span>}
+                              </div>
+                              <div className="admin-product-actions">
+                                <button
+                                  className="cta-btn edit-btn"
+                                  onClick={() => { setEditingExperience(exp); setTimeout(() => expFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  className="cta-btn delete-btn"
+                                  onClick={() => handleDeleteExperience(exp.id)}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="no-events">No experiences yet. Add one above!</p>
+                        )}
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 <button

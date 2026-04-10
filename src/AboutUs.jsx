@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
+import Footer from "./Footer";
 import "./App.css";
 import ContactModal from "./ContactModal";
 import logo from "./assets/logo.png";
@@ -204,34 +205,7 @@ function AboutUs() {
         onClose={() => setIsContactModalOpen(false)}
       />
 
-      {/* Footer */}
-      <footer className="footer">
-        <img src={logo} alt="Homecoming Ranch Logo" className="logo" />
-        <p>© 2025 Homecoming Ranch.</p>
-        <p>
-          Website Built by{" "}
-          <a
-            href="https://bartholomewdevelopment.com"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Bartholomew Development LLC
-          </a>{" "}
-          |{" "}
-          <a href="mailto:inquiries@bartholomewdevelopment.com">
-            inquiries@bartholomewdevelopment.com
-          </a>
-        </p>
-        <a
-          href="https://instagram.com/homecoming_ranch"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <span className="instagram-icon">
-            📸 Follow Homecoming Ranch's journey!
-          </span>
-        </a>
-      </footer>
+      <Footer />
     </div>
   );
 }
