@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MVP Development Hub</title>
+  <meta name="description"
+    content="A tailored platform for funded entrepreneurs to launch clean, scalable MVPs with comprehensive guidance and training." />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon.ico" />
+
+  <meta property="og:title" content="MVP Development Hub" />
+  <meta property="og:description"
+    content="A tailored platform for funded entrepreneurs to launch clean, scalable MVPs with comprehensive guidance and training." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="/og.jpg" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="/og.jpg" />
+
+  <!-- Cookie Consent CSS -->
+  <link rel="stylesheet" type="text/css"
+    href="https://cdn.jsdelivr.net/npm/cookieconsent@3/build/cookieconsent.min.css" />
+
+  <!-- Cookie Consent JS -->
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/cookieconsent@3/build/cookieconsent.min.js"></script>
+
+  <script>
+    // Load Google Analytics after consent
+    function loadGA() {
+      const script = document.createElement('script');
+      script.src = 'https://www.googletagmanager.com/gtag/js?id=G-VDJFT2K614';
+      script.async = true;
+      document.head.appendChild(script);
+
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag('js', new Date());
+      gtag('config', 'G-VDJFT2K614');
+    }
+
+    window.addEventListener('load', function () {
+      window.cookieconsent.initialise({
+        palette: {
+          popup: { background: '#000' },
+          button: { background: '#f1d600' }
+        },
+        theme: 'classic',
+        type: 'opt-in',
+        content: {
+          message: 'This website uses cookies to enhance the user experience.',
+          dismiss: 'Accept all',
+          allow: 'Allow selection',
+          deny: 'Reject all',
+          link: 'Privacy Policy',
+          href: 'javascript:void(0)' // Prevent default nav
+        },
+        onInitialise: function (status) {
+          if (this.hasConsented()) {
+            loadGA();
+          }
+        },
+        onStatusChange: function (status, chosenBefore) {
+          if (this.hasConsented()) {
+            loadGA();
+          }
+        },
+        onPopupOpen: function () {
+          // Attach modal trigger to the policy link inside the popup
+          setTimeout(function () {
+            const link = document.querySelector('.cc-link');
+            if (link) {
+              link.addEventListener('click', function (e) {
+                e.preventDefault();
+                if (window.openPrivacyModalFromCookie) {
+                  window.openPrivacyModalFromCookie();
+                }
+              });
+            }
+          }, 100);
+        }
+      });
+    });
+  </script>
+
+  <!-- Badge remover script -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const removeBadge = () => {
+        const badge = document.getElementById('aiappbuilder-badge');
+        if (badge) {
+          badge.remove();
+        }
+      };
+
+      removeBadge();
+
+      const observer = new MutationObserver(function (mutations) {
+        mutations.forEach(function (mutation) {
+          mutation.addedNodes.forEach(function (node) {
+            if (node.nodeType === 1) {
+              if (node.id === 'aiappbuilder-badge') {
+                node.remove();
+              }
+              const badgeInChildren = node.querySelector && node.querySelector('#aiappbuilder-badge');
+              if (badgeInChildren) {
+                badgeInChildren.remove();
+              }
+            }
+          });
+        });
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    });
+  </script>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>

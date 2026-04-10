@@ -1,0 +1,762 @@
+import { onRequest } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
+import { google } from 'googleapis';
+import {
+  checkRateLimit,
+  sanitizeString,
+  isValidEmail,
+  isValidPhone,
+  applyCORS,
+  getClientIP,
+  validateAdminPassword,
+} from './security.js';
+
+// Define secrets
+const googleServiceAccountKey = defineSecret('GOOGLE_SERVICE_ACCOUNT_KEY');
+const adminPassword = defineSecret('ADMIN_PASSWORD');
+
+// Google Sheets configuration
+const SPREADSHEET_ID = '1Ikt5YbB675yHYj7m0An0AwPeahg9D_GkIPNP2ViCzqQ';
+const SHEET_NAME = 'Leads';
+
+// Allowed origins for CORS (update with your production domain)
+const ALLOWED_ORIGINS = [
+  'https://homecoming-ranch-1c2d9.web.app',
+  'https://homecoming-ranch-1c2d9.firebaseapp.com',
+  'http://localhost:5173', // Vite dev server
+  'http://localhost:5000', // Firebase emulator
+];
+
+/**
+ * Initialize Google Sheets API client
+ */
+async function getGoogleSheetsClient() {
+  try {
+    // Get credentials from secret and parse
+    const credentialsString = googleServiceAccountKey.value();
+    const credentials = JSON.parse(credentialsString);
+
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    });
+
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+
+    return sheets;
+  } catch (error) {
+    console.error('Error initializing Google Sheets client:', error.message);
+    throw new Error('Failed to initialize Google Sheets API');
+  }
+}
+
+/**
+ * Format date and time in America/New_York timezone
+ */
+function getFormattedDateTime() {
+  const now = new Date();
+
+  const dateOptions = {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  };
+
+  const timeOptions = {
+    timeZone: 'America/New_York',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  };
+
+  const date = new Intl.DateTimeFormat('en-US', dateOptions).format(now);
+  const time = new Intl.DateTimeFormat('en-US', timeOptions).format(now);
+
+  return { date, time };
+}
+
+/**
+ * Append row to Google Sheet - Recipe Book
+ */
+async function appendToRecipeSheet(firstName, email, subscribedToNewsletter) {
+  try {
+    const sheets = await getGoogleSheetsClient();
+    const { date, time } = getFormattedDateTime();
+
+    // Convert newsletter subscription to TRUE/FALSE
+    const newsletterValue = subscribedToNewsletter ? 'TRUE' : 'FALSE';
+
+    // Prepare the row data matching the column order:
+    // Date, Time, First Name, Email Address, Subscribed to Newsletter
+    const values = [[date, time, firstName, email, newsletterValue]];
+
+    const request = {
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${SHEET_NAME}!A:E`,
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      resource: {
+        values,
+      },
+    };
+
+    const response = await sheets.spreadsheets.values.append(request);
+
+    console.log('Successfully appended row to Recipe Sheet:', {
+      spreadsheetId: SPREADSHEET_ID,
+      updatedRange: response.data.updates.updatedRange,
+      updatedRows: response.data.updates.updatedRows,
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('Error appending to Recipe Sheet:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Append row to Google Sheet - Contact Us
+ */
+async function appendToContactSheet(formData) {
+  try {
+    const sheets = await getGoogleSheetsClient();
+    const { date, time } = getFormattedDateTime();
+
+    // Convert newsletter subscription to TRUE/FALSE
+    const newsletterValue = formData.subscribedToNewsletter ? 'TRUE' : 'FALSE';
+
+    // Prepare the row data matching the column order:
+    // Date, Time, First Name, Last Name, Email, Phone, How Did You Hear About Us?, Subscribe to Newsletter?, Comments
+    const values = [[
+      date,
+      time,
+      formData.firstName,
+      formData.lastName,
+      formData.email,
+      formData.phone,
+      formData.referralSource || '',
+      newsletterValue,
+      formData.comments || '',
+    ]];
+
+    const request = {
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Contact Us!A:I',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      resource: {
+        values,
+      },
+    };
+
+    const response = await sheets.spreadsheets.values.append(request);
+
+    console.log('Successfully appended row to Contact Us Sheet:', {
+      spreadsheetId: SPREADSHEET_ID,
+      updatedRange: response.data.updates.updatedRange,
+      updatedRows: response.data.updates.updatedRows,
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('Error appending to Contact Us Sheet:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Append row to Google Sheet - Buy Meat
+ */
+async function appendToBuyMeatSheet(formData) {
+  try {
+    const sheets = await getGoogleSheetsClient();
+    const { date, time } = getFormattedDateTime();
+
+    // Convert newsletter subscription to TRUE/FALSE
+    const newsletterValue = formData.subscribedToNewsletter ? 'TRUE' : 'FALSE';
+
+    // Prepare the row data matching the column order:
+    // Date, Time, First Name, Last Name, Email, Phone, Which Product Are You Inquiring About?, How Did You Hear About Us?, Subscribe to Newsletter?, Comments
+    const values = [[
+      date,
+      time,
+      formData.firstName,
+      formData.lastName,
+      formData.email,
+      formData.phone,
+      formData.product || '',
+      formData.referralSource || '',
+      newsletterValue,
+      formData.comments || '',
+    ]];
+
+    const request = {
+      spreadsheetId: SPREADSHEET_ID,
+      range: 'Buy Meat!A:J',
+      valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
+      resource: {
+        values,
+      },
+    };
+
+    const response = await sheets.spreadsheets.values.append(request);
+
+    console.log('Successfully appended row to Buy Meat Sheet:', {
+      spreadsheetId: SPREADSHEET_ID,
+      updatedRange: response.data.updates.updatedRange,
+      updatedRows: response.data.updates.updatedRows,
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error('Error appending to Buy Meat Sheet:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Cloud Function: recipeSignup
+ * Handles recipe book email capture form submission
+ */
+export const recipeSignup = onRequest(
+  {
+    cors: false, // We'll handle CORS manually for better security
+    memory: '256MiB',
+    timeoutSeconds: 60,
+    secrets: [googleServiceAccountKey],
+  },
+  async (req, res) => {
+    // Handle CORS preflight
+    if (req.method === 'OPTIONS') {
+      if (applyCORS(req, res, ALLOWED_ORIGINS)) {
+        res.status(204).send('');
+      } else {
+        res.status(403).send('Origin not allowed');
+      }
+      return;
+    }
+
+    // Apply CORS for actual request
+    if (!applyCORS(req, res, ALLOWED_ORIGINS)) {
+      res.status(403).json({
+        success: false,
+        error: 'Origin not allowed',
+      });
+      return;
+    }
+
+    // Only allow POST requests
+    if (req.method !== 'POST') {
+      res.status(405).json({
+        success: false,
+        error: 'Method not allowed. Use POST.',
+      });
+      return;
+    }
+
+    // Rate limiting: 10 requests per minute per IP
+    const clientIP = getClientIP(req);
+    if (!checkRateLimit(clientIP, 10, 60000)) {
+      res.status(429).json({
+        success: false,
+        error: 'Too many requests. Please try again later.',
+      });
+      return;
+    }
+
+    try {
+      // Validate required fields
+      const { firstName, email, subscribedToNewsletter } = req.body;
+
+      if (!firstName || typeof firstName !== 'string' || firstName.trim() === '') {
+        res.status(400).json({
+          success: false,
+          error: 'First name is required',
+        });
+        return;
+      }
+
+      if (!email || typeof email !== 'string' || email.trim() === '') {
+        res.status(400).json({
+          success: false,
+          error: 'Email is required',
+        });
+        return;
+      }
+
+      // Validate and sanitize inputs
+      const sanitizedFirstName = sanitizeString(firstName, 100);
+      const sanitizedEmail = email.trim().toLowerCase();
+
+      if (sanitizedFirstName.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid first name',
+        });
+        return;
+      }
+
+      if (!isValidEmail(sanitizedEmail)) {
+        res.status(400).json({
+          success: false,
+          error: 'Invalid email address',
+        });
+        return;
+      }
+
+      // Newsletter subscription is optional, default to false
+      const isSubscribed = subscribedToNewsletter === true || subscribedToNewsletter === 'true';
+
+      // Append to Google Sheet
+      await appendToRecipeSheet(
+        sanitizedFirstName,
+        sanitizedEmail,
+        isSubscribed
+      );
+
+      res.json({
+        success: true,
+        message: 'Successfully recorded signup',
+      });
+
+    } catch (error) {
+      console.error('Error in recipeSignup:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to record signup. Please try again.',
+      });
+    }
+  }
+);
+
+/**
+ * Cloud Function: contactSubmit
+ * Handles contact form submission
+ */
+export const contactSubmit = onRequest(
+  {
+    cors: true,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+    secrets: [googleServiceAccountKey],
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({
+        success: false,
+        error: 'Method not allowed. Use POST.',
+      });
+      return;
+    }
+
+    try {
+      const { firstName, lastName, email, phone, referralSource, subscribedToNewsletter, comments } = req.body;
+
+      // Validate required fields
+      if (!firstName || typeof firstName !== 'string' || firstName.trim() === '') {
+        res.status(400).json({ success: false, error: 'First name is required' });
+        return;
+      }
+
+      if (!lastName || typeof lastName !== 'string' || lastName.trim() === '') {
+        res.status(400).json({ success: false, error: 'Last name is required' });
+        return;
+      }
+
+      if (!email || typeof email !== 'string' || email.trim() === '') {
+        res.status(400).json({ success: false, error: 'Email is required' });
+        return;
+      }
+
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        res.status(400).json({ success: false, error: 'Invalid email address' });
+        return;
+      }
+
+      if (!phone || typeof phone !== 'string' || phone.trim() === '') {
+        res.status(400).json({ success: false, error: 'Phone is required' });
+        return;
+      }
+
+      if (!referralSource || typeof referralSource !== 'string' || referralSource.trim() === '') {
+        res.status(400).json({ success: false, error: 'Referral source is required' });
+        return;
+      }
+
+      const isSubscribed = subscribedToNewsletter === true || subscribedToNewsletter === 'true';
+
+      // Append to Contact Us sheet
+      await appendToContactSheet({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        referralSource: referralSource.trim(),
+        subscribedToNewsletter: isSubscribed,
+        comments: comments ? comments.trim() : '',
+      });
+
+      res.json({
+        success: true,
+        message: 'Successfully recorded contact form',
+      });
+
+    } catch (error) {
+      console.error('Error in contactSubmit:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to record contact form. Please try again.',
+      });
+    }
+  }
+);
+
+/**
+ * Cloud Function: buyMeatSubmit
+ * Handles buy meat form submission
+ */
+export const buyMeatSubmit = onRequest(
+  {
+    cors: true,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+    secrets: [googleServiceAccountKey],
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({
+        success: false,
+        error: 'Method not allowed. Use POST.',
+      });
+      return;
+    }
+
+    try {
+      const { firstName, lastName, email, phone, product, referralSource, subscribedToNewsletter, comments } = req.body;
+
+      // Validate required fields
+      if (!firstName || typeof firstName !== 'string' || firstName.trim() === '') {
+        res.status(400).json({ success: false, error: 'First name is required' });
+        return;
+      }
+
+      if (!lastName || typeof lastName !== 'string' || lastName.trim() === '') {
+        res.status(400).json({ success: false, error: 'Last name is required' });
+        return;
+      }
+
+      if (!email || typeof email !== 'string' || email.trim() === '') {
+        res.status(400).json({ success: false, error: 'Email is required' });
+        return;
+      }
+
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        res.status(400).json({ success: false, error: 'Invalid email address' });
+        return;
+      }
+
+      if (!phone || typeof phone !== 'string' || phone.trim() === '') {
+        res.status(400).json({ success: false, error: 'Phone is required' });
+        return;
+      }
+
+      if (!product || typeof product !== 'string' || product.trim() === '') {
+        res.status(400).json({ success: false, error: 'Product selection is required' });
+        return;
+      }
+
+      if (!referralSource || typeof referralSource !== 'string' || referralSource.trim() === '') {
+        res.status(400).json({ success: false, error: 'Referral source is required' });
+        return;
+      }
+
+      const isSubscribed = subscribedToNewsletter === true || subscribedToNewsletter === 'true';
+
+      // Append to Buy Meat sheet
+      await appendToBuyMeatSheet({
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        product: product.trim(),
+        referralSource: referralSource.trim(),
+        subscribedToNewsletter: isSubscribed,
+        comments: comments ? comments.trim() : '',
+      });
+
+      res.json({
+        success: true,
+        message: 'Successfully recorded buy meat inquiry',
+      });
+
+    } catch (error) {
+      console.error('Error in buyMeatSubmit:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to record buy meat inquiry. Please try again.',
+      });
+    }
+  }
+);
+
+/**
+ * Cloud Function: getEvents
+ * Retrieves all events from Google Sheets
+ */
+export const getEvents = onRequest(
+  {
+    cors: true,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+    secrets: [googleServiceAccountKey],
+  },
+  async (req, res) => {
+    if (req.method !== 'GET') {
+      res.status(405).json({
+        success: false,
+        error: 'Method not allowed. Use GET.',
+      });
+      return;
+    }
+
+    try {
+      const sheets = await getGoogleSheetsClient();
+
+      // Read all events from the Events sheet
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Events!A2:E', // Skip header row, columns: ID, Name, Date, Time, Type
+      });
+
+      const rows = response.data.values || [];
+      const events = rows.map((row) => ({
+        id: parseInt(row[0]) || 0,
+        name: row[1] || '',
+        date: row[2] || '',
+        time: row[3] || '',
+        type: row[4] || '',
+      }));
+
+      res.json({
+        success: true,
+        events,
+      });
+
+    } catch (error) {
+      console.error('Error in getEvents:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to retrieve events. Please try again.',
+        events: [],
+      });
+    }
+  }
+);
+
+/**
+ * Cloud Function: addEvent
+ * Adds a new event to Google Sheets
+ */
+export const addEvent = onRequest(
+  {
+    cors: true,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+    secrets: [googleServiceAccountKey],
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({
+        success: false,
+        error: 'Method not allowed. Use POST.',
+      });
+      return;
+    }
+
+    try {
+      const { name, date, time, type } = req.body;
+
+      // Validate required fields
+      if (!name || typeof name !== 'string' || name.trim() === '') {
+        res.status(400).json({ success: false, error: 'Event name is required' });
+        return;
+      }
+
+      if (!date || typeof date !== 'string' || date.trim() === '') {
+        res.status(400).json({ success: false, error: 'Event date is required' });
+        return;
+      }
+
+      if (!time || typeof time !== 'string' || time.trim() === '') {
+        res.status(400).json({ success: false, error: 'Event time is required' });
+        return;
+      }
+
+      if (!type || typeof type !== 'string' || type.trim() === '') {
+        res.status(400).json({ success: false, error: 'Event type is required' });
+        return;
+      }
+
+      const sheets = await getGoogleSheetsClient();
+
+      // Get current events to determine next ID
+      const getResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Events!A2:A',
+      });
+
+      const existingIds = (getResponse.data.values || []).map(row => parseInt(row[0]) || 0);
+      const nextId = existingIds.length > 0 ? Math.max(...existingIds) + 1 : 1;
+
+      // Append new event
+      const values = [[nextId, name.trim(), date.trim(), time.trim(), type.trim()]];
+
+      const appendResponse = await sheets.spreadsheets.values.append({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Events!A:E',
+        valueInputOption: 'USER_ENTERED',
+        insertDataOption: 'INSERT_ROWS',
+        resource: { values },
+      });
+
+      console.log('Successfully added event:', {
+        spreadsheetId: SPREADSHEET_ID,
+        updatedRange: appendResponse.data.updates.updatedRange,
+        updatedRows: appendResponse.data.updates.updatedRows,
+      });
+
+      res.json({
+        success: true,
+        message: 'Successfully added event',
+        event: {
+          id: nextId,
+          name: name.trim(),
+          date: date.trim(),
+          time: time.trim(),
+          type: type.trim(),
+        },
+      });
+
+    } catch (error) {
+      console.error('Error in addEvent:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to add event. Please try again.',
+      });
+    }
+  }
+);
+
+/**
+ * Cloud Function: deleteEvent
+ * Deletes an event from Google Sheets by ID
+ */
+export const deleteEvent = onRequest(
+  {
+    cors: true,
+    memory: '256MiB',
+    timeoutSeconds: 60,
+    secrets: [googleServiceAccountKey],
+  },
+  async (req, res) => {
+    if (req.method !== 'POST') {
+      res.status(405).json({
+        success: false,
+        error: 'Method not allowed. Use POST.',
+      });
+      return;
+    }
+
+    try {
+      const { id } = req.body;
+
+      // Validate required fields
+      if (!id || typeof id !== 'number') {
+        res.status(400).json({ success: false, error: 'Event ID is required' });
+        return;
+      }
+
+      const sheets = await getGoogleSheetsClient();
+
+      // Get spreadsheet metadata to find the Events sheet ID
+      const spreadsheetMetadata = await sheets.spreadsheets.get({
+        spreadsheetId: SPREADSHEET_ID,
+      });
+
+      const eventsSheet = spreadsheetMetadata.data.sheets.find(
+        sheet => sheet.properties.title === 'Events'
+      );
+
+      if (!eventsSheet) {
+        res.status(500).json({
+          success: false,
+          error: 'Events sheet not found in spreadsheet',
+        });
+        return;
+      }
+
+      const eventsSheetId = eventsSheet.properties.sheetId;
+
+      // Get all events to find the row number
+      const getResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId: SPREADSHEET_ID,
+        range: 'Events!A2:E',
+      });
+
+      const rows = getResponse.data.values || [];
+      const rowIndex = rows.findIndex(row => parseInt(row[0]) === id);
+
+      if (rowIndex === -1) {
+        res.status(404).json({
+          success: false,
+          error: 'Event not found',
+        });
+        return;
+      }
+
+      // Delete the row (rowIndex + 2 because we start at row 2, and index is 0-based)
+      const actualRowNumber = rowIndex + 2;
+
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        resource: {
+          requests: [
+            {
+              deleteDimension: {
+                range: {
+                  sheetId: eventsSheetId,
+                  dimension: 'ROWS',
+                  startIndex: actualRowNumber - 1,
+                  endIndex: actualRowNumber,
+                },
+              },
+            },
+          ],
+        },
+      });
+
+      console.log('Successfully deleted event:', { id, rowNumber: actualRowNumber });
+
+      res.json({
+        success: true,
+        message: 'Successfully deleted event',
+      });
+
+    } catch (error) {
+      console.error('Error in deleteEvent:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to delete event. Please try again.',
+      });
+    }
+  }
+);

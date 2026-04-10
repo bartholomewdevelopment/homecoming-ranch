@@ -1,4 +1,14 @@
 {
+  "functions": {
+    "source": "functions",
+    "codebase": "default",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log"
+    ]
+  },
   "hosting": {
     "public": "dist",
     "ignore": [
@@ -7,6 +17,70 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/api/recipe-signup",
+        "function": "recipeSignup"
+      },
+      {
+        "source": "/api/contact-submit",
+        "function": "contactSubmit"
+      },
+      {
+        "source": "/api/buy-meat-submit",
+        "function": "buyMeatSubmit"
+      },
+      {
+        "source": "/api/events",
+        "function": "getEvents"
+      },
+      {
+        "source": "/api/events/add",
+        "function": "addEvent"
+      },
+      {
+        "source": "/api/events/delete",
+        "function": "deleteEvent"
+      },
+      {
+        "source": "/api/products",
+        "function": "getProducts"
+      },
+      {
+        "source": "/api/products/add",
+        "function": "addProduct"
+      },
+      {
+        "source": "/api/products/update",
+        "function": "updateProduct"
+      },
+      {
+        "source": "/api/products/delete",
+        "function": "deleteProduct"
+      },
+      {
+        "source": "/api/books",
+        "function": "getBooks"
+      },
+      {
+        "source": "/api/books/add",
+        "function": "addBook"
+      },
+      {
+        "source": "/api/books/update",
+        "function": "updateBook"
+      },
+      {
+        "source": "/api/books/delete",
+        "function": "deleteBook"
+      },
+      {
+        "source": "/api/orders/submit",
+        "function": "submitOrder"
+      },
+      {
+        "source": "/api/orders",
+        "function": "getOrders"
+      },
       {
         "source": "**",
         "destination": "/index.html"

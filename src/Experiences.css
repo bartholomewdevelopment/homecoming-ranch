@@ -1,0 +1,391 @@
+/* ========================================
+   EXPERIENCES PAGE
+   ======================================== */
+
+/* Hero */
+.exp-hero {
+  width: 100vw;
+  min-height: 52vh;
+  background-size: cover;
+  background-position: center 35%;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  padding: 4rem 5%;
+}
+
+.exp-hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(14, 30, 14, 0.35) 0%,
+    rgba(14, 30, 14, 0.72) 100%
+  );
+}
+
+.exp-hero-content {
+  position: relative;
+  z-index: 2;
+  color: #fff;
+  max-width: 700px;
+}
+
+.exp-hero-content h1 {
+  font-size: 3.8rem;
+  font-weight: 700;
+  color: #ffd966;
+  text-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
+  margin-bottom: 0.6rem;
+}
+
+.exp-hero-content p {
+  font-size: 1.3rem;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+@media (max-width: 768px) {
+  .exp-hero-content h1 { font-size: 2.4rem; }
+  .exp-hero-content p  { font-size: 1.1rem; }
+}
+
+/* Shared section wrapper */
+.exp-section {
+  width: 100vw;
+  padding: 5rem 5%;
+}
+
+.exp-section-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.exp-section h2 {
+  font-size: 2.6rem;
+  color: #266148;
+  margin-bottom: 0.5rem;
+}
+
+.exp-section-sub {
+  font-size: 1.1rem;
+  color: #4b6358;
+  max-width: 600px;
+  margin-bottom: 2.5rem;
+}
+
+/* Events section */
+.exp-events-section {
+  background: #fff;
+}
+
+.exp-events-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 960px;
+}
+
+.exp-event-card {
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-organic);
+  padding: 1.75rem 1.5rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  box-shadow: var(--shadow-card);
+}
+
+.exp-event-badge {
+  display: inline-block;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.25rem 0.75rem;
+  border-radius: 50px;
+  width: fit-content;
+  margin-bottom: 0.25rem;
+}
+
+.exp-event-card h3 {
+  font-size: 1.2rem;
+  color: #1e293b;
+  margin: 0;
+}
+
+.exp-event-meta {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.exp-event-meta span {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: #4b6358;
+  font-weight: 500;
+}
+
+.exp-event-btn {
+  margin-top: 0.75rem;
+  width: 100%;
+  font-size: 0.95rem;
+  padding: 0.7rem 1.5rem;
+  margin-top: auto;
+}
+
+.exp-no-events {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 3rem 2rem;
+  background: var(--color-background);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-organic);
+  max-width: 480px;
+  color: #4b6358;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.exp-inline-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: inherit;
+  padding: 0;
+}
+
+/* Experience cards */
+.exp-cards-section {
+  background: var(--color-background);
+}
+
+.exp-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 2rem;
+  width: 100%;
+}
+
+.exp-card {
+  background: #fff;
+  border-radius: var(--radius-organic);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.exp-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(21, 128, 61, 0.16);
+}
+
+.exp-card--featured {
+  border: 2px solid var(--color-primary);
+  box-shadow: 0 6px 24px rgba(21, 128, 61, 0.18);
+}
+
+.exp-card-img-wrap {
+  position: relative;
+  height: 210px;
+  overflow: hidden;
+}
+
+.exp-card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s ease;
+}
+
+.exp-card:hover .exp-card-img {
+  transform: scale(1.04);
+}
+
+.exp-card-badge {
+  position: absolute;
+  top: 0.9rem;
+  left: 0.9rem;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.3rem 0.8rem;
+  border-radius: 50px;
+}
+
+.exp-card-badge--featured {
+  background: var(--color-primary);
+  font-size: 0.8rem;
+}
+
+.exp-card-body {
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 0.85rem;
+  text-align: left;
+}
+
+.exp-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.exp-card-header h3 {
+  font-size: 1.35rem;
+  color: #1e293b;
+  margin: 0;
+}
+
+.exp-card-subtitle {
+  font-size: 0.85rem;
+  color: var(--color-primary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.exp-card-desc {
+  font-size: 0.95rem;
+  color: #4b6358;
+  line-height: 1.65;
+  margin: 0;
+}
+
+.exp-card-includes {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0;
+  margin: 0;
+}
+
+.exp-card-includes li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #2c3e50;
+}
+
+.exp-card-pricing {
+  background: var(--color-background);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: auto;
+}
+
+.exp-price-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.92rem;
+}
+
+.exp-price-label {
+  color: #4b6358;
+}
+
+.exp-price-value {
+  font-weight: 700;
+  color: var(--color-primary-dark);
+}
+
+.exp-signup-btn {
+  width: 100%;
+  margin-top: 0;
+  font-size: 1rem;
+  padding: 0.85rem 1.5rem;
+}
+
+/* Sign-up modal overrides */
+.exp-modal {
+  max-width: 560px;
+  width: 94%;
+}
+
+.exp-signup-form {
+  width: 100%;
+}
+
+.exp-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.exp-pricing-reminder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  background: var(--color-background);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  font-size: 0.88rem;
+  color: #4b6358;
+}
+
+.exp-form-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1rem;
+  padding: 1.5rem 0 0.5rem;
+}
+
+.exp-form-success h3 {
+  color: var(--color-primary);
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.exp-form-success p {
+  color: #4b6358;
+  font-size: 1rem;
+  max-width: 360px;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .exp-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .exp-form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .exp-section h2 {
+    font-size: 2rem;
+  }
+}
